@@ -1,0 +1,13 @@
+streamlit>=1.38.0
+pandas>=2.2.0
+numpy>=1.26.0
+yfinance>=0.2.40
+feedparser>=6.0.11
+scikit-learn>=1.3.0
+scipy>=1.10.0
+xgboost>=2.0.0
+lightgbm>=4.0.0
+optuna>=3.5.0
+streamlit-autorefresh>=1.0.1
+psutil>=5.9.0
+pyarrow>=14.0.0
