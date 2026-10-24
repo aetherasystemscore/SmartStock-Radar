@@ -1,4 +1,4 @@
-# ⚡ SmartStock-Radar (Catalyst Pulse Pro v5.0)
+# ⚡ smartstock-radar (v5.0)
 
 > ✨ **ॐ श्रीं महालक्ष्म्यै नमः** • *Om Shreem Mahalakshmyai Namah* | *Empowering disciplined wealth creation.*
 

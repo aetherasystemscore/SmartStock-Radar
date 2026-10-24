@@ -101,9 +101,9 @@ except Exception as _import_err:
 
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO)
-logger = logging.getLogger("CatalystPulsePro")
+logger = logging.getLogger("smartstock-radar")
 
-st.set_page_config(page_title="Catalyst Pulse Pro | NIFTY 100 Event Alpha", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="smartstock-radar | NIFTY 100 Event Alpha", page_icon="⚡", layout="wide")
 
 st.markdown(
     """
@@ -1065,7 +1065,7 @@ def compute_predictive_catalyst_metrics(raw_data, news_map, universe):
 # =====================================================================
 # Section 5: Sidebar Controls & Header
 # =====================================================================
-st.sidebar.title("⚡ Catalyst Pulse Pro")
+st.sidebar.title("⚡ smartstock-radar")
 st.sidebar.caption("Event Alpha & Post-Announcement Drift Engine")
 
 universe_choice = st.sidebar.selectbox("Stock Universe:", ["Curated NIFTY 100 (Full)", "Nifty Top 30 Large-Caps", "High-Beta Midcaps"], index=0)
@@ -1336,7 +1336,7 @@ h_col1, h_col2, h_col3 = st.columns([1.5, 1.2, 0.4])
 
 with h_col1:
     st.markdown(
-        f"### ⚡ Catalyst Pulse Pro <span style='font-size:0.85rem; color:#6c757d;'>| Regime: {nifty_regime}</span>",
+        f"### ⚡ smartstock-radar <span style='font-size:0.85rem; color:#6c757d;'>| Regime: {nifty_regime}</span>",
         unsafe_allow_html=True
     )
     st.caption("✨ *ॐ श्रीं महालक्ष्म्यै नमः • Om Shreem Mahalakshmyai Namah* | Empowering disciplined wealth creation.")
@@ -2117,7 +2117,7 @@ elif nav_choice == "📰 Exchange Disclosures & Media Feed":
 elif nav_choice == "📖 Quantitative Strategy Handbook":
     render_tab_refresh_bar("Tab 6: Quantitative Strategy Handbook & Empirical Rules", "tab6_top")
     st.title("📖 Quantitative Strategy Handbook & Indicator Playbook")
-    st.markdown("This institutional handbook explains the mathematical formulation and AI RAG logic of **Catalyst Pulse Pro**.")
+    st.markdown("This institutional handbook explains the mathematical formulation and AI RAG logic of **smartstock-radar**.")
 
 # VIEW 5: Paper Prediction Audit & Win Rate Ledger
 elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
