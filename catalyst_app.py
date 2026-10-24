@@ -894,6 +894,23 @@ st.sidebar.markdown("---")
 st.sidebar.metric("India VIX Pulse", f"{curr_vix:.1f}", f"{vix_mood} ({vix_source})")
 st.sidebar.caption(f"Universe: {len(ACTIVE_UNIVERSE)} Stocks | Filings: {len(news_items_list)}")
 
+with st.sidebar.expander("🌟 Daily Prosperity Verse", expanded=True):
+    st.markdown(
+        """
+        > **ॐ श्रीं महालक्ष्म्यै नमः**  
+        > *(Om Shreem Mahalakshmyai Namah)*  
+        > *“Wealth flows to those who plan wisely and act with patience.”*  
+        """,
+        help="A traditional invocation for financial wisdom and stability."
+    )
+    st.caption(
+        "🌱 **Lakshmi Beej Mantra (Growth & Seed Capital):**\n"
+        "*ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः* "
+        "*(Om Shreem Hreem Shreem Kamale Kamalalaye Praseeda Praseeda Shreem Hreem Shreem Mahalakshmyai Namah)*\n\n"
+        "🌸 **Auspicious Trading Greeting:**\n"
+        "*ॐ शुभ लाभाय नमः (Om Shubha Labhāya Namah)* — Salutations to auspiciousness and profit (*Labh*)."
+    )
+
 # Cloud Resource Monitor Widget (CPU / RAM)
 try:
     from resource_monitor import render_resource_monitor_sidebar
@@ -1088,6 +1105,7 @@ with h_col1:
         f"### ⚡ Catalyst Pulse Pro <span style='font-size:0.85rem; color:#6c757d;'>| Regime: {nifty_regime}</span>",
         unsafe_allow_html=True
     )
+    st.caption("✨ *ॐ श्रीं महालक्ष्म्यै नमः • Om Shreem Mahalakshmyai Namah* | Empowering disciplined wealth creation.")
 
 with h_col2:
     _hdr_stale, _hdr_age, _hdr_last_ref, _hdr_fetched, _hdr_fb = _get_app_freshness_state()
@@ -1746,10 +1764,14 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 ])
                 added = log_daily_predictions_to_github(top_setups, trigger_type="MANUAL_WEB_UI", current_regime_label=regime_tag_full)
                 if added > 0:
-                    st.success(f"✅ Recorded {added} top high-conviction predictions under {nifty_regime} (IST)!")
+                    try:
+                        st.toast("🌸 ॐ शुभ लाभाय नमः • Om Shubha Labhāya Namah — May your trades be profitable!")
+                    except Exception:
+                        pass
+                    st.success(f"Analysis complete! 🌸 ॐ शुभ लाभाय नमः (*Om Shubha Labhāya Namah*) — Recorded {added} top high-conviction predictions under {nifty_regime} (IST). May your trades be profitable.")
                     st.rerun()
                 else:
-                    st.info("Today's setups are already recorded in the ledger.")
+                    st.info("Today's setups are already recorded in the ledger. 🌸 *Om Shubha Labhāya Namah*")
 
     with col_btn2:
         if st.button("📥 Force Sync & Commit to GitHub", use_container_width=True, help="Manually push current session ledger updates to GitHub CSV"):
@@ -2593,6 +2615,19 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
             )
         else:
             st.info("No open positions currently active in the execution journal.")
+
+        st.markdown(
+            """
+            <div style="margin-top: 1.2rem; padding: 10px 14px; background: linear-gradient(90deg, #fffbeb 0%, #fef3c7 100%); border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: 6px; font-size: 0.80rem; color: #78350f;">
+                🌱 <b>Daily Wealth & Seed-Capital Invocation (Lakshmi Beej Mantra):</b><br/>
+                <b>ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः</b><br/>
+                <i>Om Shreem Hreem Shreem Kamale Kamalalaye Praseeda Praseeda Shreem Hreem Shreem Mahalakshmyai Namah</i> —
+                “O Goddess Lakshmi, seated on the lotus, please bestow your grace upon me and shower prosperity.”
+                &nbsp;|&nbsp; 🌸 <b>ॐ शुभ लाभाय नमः</b> <i>(Om Shubha Labhāya Namah)</i>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     else:
         st.info("No predictions recorded yet.")
 

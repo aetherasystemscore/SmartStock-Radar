@@ -677,7 +677,7 @@ def execute_long_term_paper_trade(candidate, current_user="PulsePro_Trader", sav
     except Exception:
         pass
 
-    return True, f"Invested ₹50,000 in new long-term pick: {sym} ({qty} units @ ₹{cmp_val:.2f} = ₹{tranche_amt:,.2f})!"
+    return True, f"🌸 ॐ शुभ लाभाय नमः (Om Shubha Labhāya Namah) — Invested ₹50,000 in new long-term pick: {sym} ({qty} units @ ₹{cmp_val:.2f} = ₹{tranche_amt:,.2f})! May your trades be profitable."
 
 
 def square_off_long_term_paper_trade(trade_id, exit_cmp=None, exit_reason="Manual Profit-Taking / Exit"):
@@ -1053,6 +1053,18 @@ def render_active_long_term_portfolio_snapshot_section(
                 - **Target XIRR**: A +15.0% price target achieved across the 180-day holding horizon translates to **+32.8% Annualized XIRR**.
                 """
             )
+
+        st.markdown(
+            """
+            <div style="margin-top: 0.6rem; padding: 8px 12px; background: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #d97706; border-radius: 6px; font-size: 0.78rem; color: #78350f;">
+                🌱 <b>Lakshmi Beej Mantra (For Growth & Seed Capital Compounding):</b>
+                <b>ॐ श्रीं ह्रीं श्रीं कमले कमलालये प्रसीद प्रसीद श्रीं ह्रीं श्रीं महालक्ष्म्यै नमः</b>
+                <i>(Om Shreem Hreem Shreem Kamale Kamalalaye Praseeda Praseeda Shreem Hreem Shreem Mahalakshmyai Namah)</i>
+                &nbsp;•&nbsp; 🌸 <b>ॐ शुभ लाभाय नमः</b> <i>(Om Shubha Labhāya Namah)</i>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
     if as_expander:
         with st.expander(f"💼 {title} ({len(active_portfolio_df)} Active Positions)", expanded=(len(active_portfolio_df) > 0)):
