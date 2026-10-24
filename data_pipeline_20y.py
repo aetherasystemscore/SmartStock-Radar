@@ -182,6 +182,12 @@ MACRO_CALENDAR = {
     2026: {"regime": "Expansion", "regime_code": 0, "grid_load_idx": 0.98, "commodity_deficit": 0.88, "logistics_idx": 0.89, "stress_event": "Physical Moat Hegemony"}
 }
 
+# Backwards-compatible mapping of year -> (regime, stress_event) used by Tab 4 20Y Horizon Matrix
+HISTORICAL_REGIMES = {
+    yr: (info["regime"], info["stress_event"])
+    for yr, info in MACRO_CALENDAR.items()
+}
+
 _CACHED_20Y_DATASET = None
 
 # ---------------------------------------------------------------------

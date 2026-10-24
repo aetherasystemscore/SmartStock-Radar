@@ -2220,7 +2220,14 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
 
             @st.cache_data(ttl=3600, show_spinner=False)
             def compute_empirical_20y_horizon_matrix():
-                from data_pipeline_20y import HISTORICAL_REGIMES
+                try:
+                    from data_pipeline_20y import HISTORICAL_REGIMES
+                except ImportError:
+                    from data_pipeline_20y import MACRO_CALENDAR
+                    HISTORICAL_REGIMES = {
+                        yr: (info["regime"], info["stress_event"])
+                        for yr, info in MACRO_CALENDAR.items()
+                    }
                 hist_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "historical_20y_bars.parquet")
                 horizons = [
                     ("1 Week (5D)", 5),
