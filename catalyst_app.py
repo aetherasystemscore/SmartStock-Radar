@@ -714,10 +714,170 @@ def audit_and_update_outcomes(raw_data):
         commit_github_ledger(ledger, sha)
     return ledger
 
+
+def classify_catalyst_archetype(cat_str: str, cat_group: str = "") -> str:
+    """Maps a catalyst string and filing group into its canonical Catalyst Archetype tag."""
+    s = str(cat_str or "").lower()
+    g = str(cat_group or "").lower()
+    if "physical moat" in s or "moat score" in s:
+        return "🏢 Physical Moats (Energy, Grid, Cap Goods)"
+    elif "usfda" in s or "inspection" in s or "warning letter" in s:
+        return "🧪 USFDA Inspection / Warning Letter"
+    elif "dividend" in s or "buyback" in s or "dividends" in g:
+        return "💰 Dividend & Buyback Distribution"
+    elif "order" in s or "capex" in s or "contract" in s or "order wins" in g:
+        return "🎯 Order Wins & Capex"
+    elif "demerger" in s or "merger" in s or "amalgamation" in s or "demergers" in g:
+        return "🔄 Demergers & Mergers"
+    elif "split" in s or "bonus" in s or "splits" in g:
+        return "✂️ Splits & Bonus"
+    else:
+        return "⚡ Technical Baseline (RSI, MA Breakdown)"
+
+
+SETUP_REC_HOLDING_MAP = {
+    "BEARISH_FADE": "3–10 Sessions (1–2W Tactical Short)",
+    "BULLISH": "5–15 Sessions (1–3W Event Drift)",
+    "BULLISH_CONTRARIAN": "180D–3Y (6M–36M Structural Moat)",
+    "NEUTRAL_WATCH": "Wait / Monitor (3–5 Sessions)",
+}
+
+ARCHETYPE_REC_HOLDING_MAP = {
+    "⚡ Technical Baseline (RSI, MA Breakdown)": "3–10 Sessions (1–2W Swing)",
+    "🏢 Physical Moats (Energy, Grid, Cap Goods)": "180D–3Y (6M–36M Structural Moat)",
+    "🧪 USFDA Inspection / Warning Letter": "5–15 Sessions (1–3W Regulatory Drift)",
+    "💰 Dividend & Buyback Distribution": "5–20 Sessions (Cum/Ex-Date Drift)",
+    "🎯 Order Wins & Capex": "5–15 Sessions (1–3W Order Drift)",
+    "🔄 Demergers & Mergers": "15–60 Sessions (Special Situation Unlock)",
+    "✂️ Splits & Bonus": "5–15 Sessions (Ex-Date Liquidity Drift)",
+}
+
+
+def _format_ticker_group_summary(df_sub: pd.DataFrame, is_closed: bool = False) -> str:
+    """Formats unique purchased tickers with trade counts (and W/L for closed trades)."""
+    if df_sub is None or df_sub.empty or "Ticker" not in df_sub.columns:
+        return "None"
+    parts = []
+    for sym, grp in df_sub.groupby(df_sub["Ticker"].astype(str).str.replace(".NS", "", regex=False).str.strip()):
+        cnt = len(grp)
+        if is_closed and "Outcome_Status" in grp.columns:
+            w = int((grp["Outcome_Status"] == "SUCCESS").sum())
+            l = int((grp["Outcome_Status"] == "FAILED").sum())
+            parts.append(f"{sym} ({w}W/{l}L)" if cnt > 1 else f"{sym} ({'W' if w > 0 else 'L'})")
+        else:
+            parts.append(f"{sym} ({cnt}x)" if cnt > 1 else f"{sym}")
+    return ", ".join(parts) if parts else "None"
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_empirical_tag_and_archetype_summary():
+    """
+    Computes live empirical success rates, trade counts, purchased tickers, and recommended holding periods
+    from catalyst_prediction_ledger.csv and data/dual_logic_findings.json.
+    """
+    try:
+        ledger_df, _ = get_github_ledger()
+    except Exception:
+        ledger_df = pd.DataFrame()
+    if (ledger_df is None or ledger_df.empty) and os.path.exists(LEDGER_FILENAME):
+        try:
+            ledger_df = pd.read_csv(LEDGER_FILENAME)
+        except Exception:
+            ledger_df = pd.DataFrame()
+
+    # Load 20Y Out-of-Sample empirical benchmark for Dual-Logic Physical Moats
+    dl_20y_wr = 52.9
+    findings_path = os.path.join("data", "dual_logic_findings.json")
+    if os.path.exists(findings_path):
+        try:
+            with open(findings_path, "r", encoding="utf-8") as f:
+                fdata = json.load(f)
+                if "win_rate" in fdata:
+                    dl_20y_wr = round(float(fdata["win_rate"]) * 100.0, 1)
+        except Exception:
+            pass
+
+    setup_stats = {}
+    arch_stats = {}
+
+    if ledger_df is not None and not ledger_df.empty:
+        df_work = ledger_df.copy()
+        df_work["Clean_Ticker"] = df_work["Ticker"].astype(str).str.replace(".NS", "", regex=False).str.strip()
+        df_work["Arch"] = df_work["Active_Catalyst"].apply(lambda x: classify_catalyst_archetype(x, ""))
+
+        for s_key in ["BEARISH_FADE", "BULLISH", "BULLISH_CONTRARIAN"]:
+            sub = df_work[df_work["Predicted_Outlook"] == s_key]
+            sub_open = sub[sub["Outcome_Status"].isin(["PENDING", "OPEN"])]
+            sub_closed = sub[sub["Outcome_Status"].isin(["SUCCESS", "FAILED"])]
+            tot_c = len(sub)
+            op_c = len(sub_open)
+            cl_c = len(sub_closed)
+            w_c = int((sub_closed["Outcome_Status"] == "SUCCESS").sum()) if cl_c > 0 else 0
+            l_c = int((sub_closed["Outcome_Status"] == "FAILED").sum()) if cl_c > 0 else 0
+            if cl_c > 0:
+                wr_val = round((w_c / cl_c) * 100.0, 1)
+                badge = f"{wr_val:.1f}% ({w_c}W/{l_c}L Closed)"
+            elif s_key == "BULLISH_CONTRARIAN":
+                wr_val = dl_20y_wr
+                badge = f"{dl_20y_wr:.1f}% (20Y OOS | {op_c} Open)"
+            else:
+                wr_val = 0.0
+                badge = f"0.0% ({op_c} Open)"
+            setup_stats[s_key] = {
+                "total": tot_c,
+                "open": op_c,
+                "closed": cl_c,
+                "wins": w_c,
+                "losses": l_c,
+                "wr_pct": wr_val,
+                "badge": badge,
+                "rec_holding": SETUP_REC_HOLDING_MAP.get(s_key, "5–10 Sessions"),
+                "open_tickers": _format_ticker_group_summary(sub_open, is_closed=False),
+                "closed_tickers": _format_ticker_group_summary(sub_closed, is_closed=True),
+            }
+
+        for a_key, rec_h in ARCHETYPE_REC_HOLDING_MAP.items():
+            sub = df_work[df_work["Arch"] == a_key]
+            sub_open = sub[sub["Outcome_Status"].isin(["PENDING", "OPEN"])]
+            sub_closed = sub[sub["Outcome_Status"].isin(["SUCCESS", "FAILED"])]
+            tot_c = len(sub)
+            op_c = len(sub_open)
+            cl_c = len(sub_closed)
+            w_c = int((sub_closed["Outcome_Status"] == "SUCCESS").sum()) if cl_c > 0 else 0
+            l_c = int((sub_closed["Outcome_Status"] == "FAILED").sum()) if cl_c > 0 else 0
+            if cl_c > 0:
+                wr_val = round((w_c / cl_c) * 100.0, 1)
+                badge = f"{wr_val:.1f}% ({w_c}W/{l_c}L)"
+            elif "Physical Moats" in a_key:
+                wr_val = dl_20y_wr
+                badge = f"{dl_20y_wr:.1f}% (20Y OOS | {op_c} Open)"
+            else:
+                wr_val = None
+                badge = "Calibrated P(1W)"
+            arch_stats[a_key] = {
+                "total": tot_c,
+                "open": op_c,
+                "closed": cl_c,
+                "wins": w_c,
+                "losses": l_c,
+                "wr_pct": wr_val,
+                "badge": badge,
+                "rec_holding": rec_h,
+                "open_tickers": _format_ticker_group_summary(sub_open, is_closed=False),
+                "closed_tickers": _format_ticker_group_summary(sub_closed, is_closed=True),
+            }
+
+    return {"setup": setup_stats, "archetype": arch_stats, "dl_20y_wr": dl_20y_wr}
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def compute_predictive_catalyst_metrics(raw_data, news_map, universe):
     if raw_data.empty:
         return pd.DataFrame()
+
+    tag_summary = get_empirical_tag_and_archetype_summary()
+    setup_stats = tag_summary.get("setup", {})
+    arch_stats = tag_summary.get("archetype", {})
 
     results = []
     for asset in universe:
@@ -832,11 +992,49 @@ def compute_predictive_catalyst_metrics(raw_data, news_map, universe):
         else:
             horizon_label = f"⏳ Positional Unlock ({estimated_days} Sessions)"
 
+        if "Bullish" in outlook:
+            setup_tag = "🟢 BULLISH (Tactical Breakout)"
+            setup_key = "BULLISH"
+        elif "Distribution" in outlook:
+            setup_tag = "🔴 BEARISH_FADE (Tactical Short)"
+            setup_key = "BEARISH_FADE"
+        else:
+            setup_tag = "🟡 NEUTRAL_WATCH (Rangebound)"
+            setup_key = "NEUTRAL_WATCH"
+
+        arch_tag = classify_catalyst_archetype(cat_name, cat_group)
+        s_stat = setup_stats.get(setup_key, {})
+        a_stat = arch_stats.get(arch_tag, {})
+
+        if s_stat and s_stat.get("closed", 0) > 0:
+            tag_wr_str = f"Setup {s_stat['wr_pct']:.1f}% ({s_stat['wins']}W/{s_stat['losses']}L)"
+        elif a_stat and a_stat.get("closed", 0) > 0:
+            tag_wr_str = f"Arch {a_stat['wr_pct']:.1f}% ({a_stat['wins']}W/{a_stat['losses']}L)"
+        else:
+            tag_wr_str = f"{prob_1w}% (Calibrated 1W)"
+
+        if cat_group == "Demergers & Mergers":
+            rec_holding_str = f"15–60 Sessions (Special Situation / {estimated_days}D Drift)"
+        elif cat_group == "Dividends & Buybacks":
+            rec_holding_str = f"5–20 Sessions (Cum/Ex-Date / {estimated_days}D Drift)"
+        elif cat_group in ["Order Wins & Capex", "Splits & Bonus"]:
+            rec_holding_str = f"5–15 Sessions ({horizon_label})"
+        elif setup_key == "BEARISH_FADE":
+            rec_holding_str = f"3–10 Sessions ({horizon_label})"
+        elif setup_key == "BULLISH":
+            rec_holding_str = f"5–15 Sessions ({horizon_label})"
+        else:
+            rec_holding_str = f"{horizon_label} (1–2W Window)"
+
         results.append({
             "Ticker": clean_sym,
             "Name": asset["name"],
             "Category": asset["category"],
             "CMP (₹)": round(cmp, 2),
+            "Setup Tag": setup_tag,
+            "Catalyst Archetype": arch_tag,
+            "Tag Success Rate": tag_wr_str,
+            "Rec. Holding Period": rec_holding_str,
             "Catalyst Score": final_catalyst_score,
             "P(1W) Drift %": prob_1w,
             "P(2W) Drift %": prob_2w,
@@ -1206,15 +1404,159 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
     if catalyst_df.empty:
         st.warning("⚠️ Market data feed synchronizing...")
     else:
+        tag_summary_tab1 = get_empirical_tag_and_archetype_summary()
+        s_stats_t1 = tag_summary_tab1.get("setup", {})
+        a_stats_t1 = tag_summary_tab1.get("archetype", {})
+        dl_20y_wr_t1 = tag_summary_tab1.get("dl_20y_wr", 52.9)
+
+        bear_stat = s_stats_t1.get("BEARISH_FADE", {})
+        bull_stat = s_stats_t1.get("BULLISH", {})
+        moat_stat = s_stats_t1.get("BULLISH_CONTRARIAN", {})
+        tech_arch_stat = a_stats_t1.get("⚡ Technical Baseline (RSI, MA Breakdown)", {})
+        moat_arch_stat = a_stats_t1.get("🏢 Physical Moats (Energy, Grid, Cap Goods)", {})
+        usfda_arch_stat = a_stats_t1.get("🧪 USFDA Inspection / Warning Letter", {})
+        div_arch_stat = a_stats_t1.get("💰 Dividend & Buyback Distribution", {})
+
+        st.markdown(
+            f"""
+            <div style="background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; border-left: 5px solid #38bdf8; font-size: 0.80rem;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
+                    <span style="font-weight:800; font-size:0.88rem; color:#38bdf8;">🏷️ Applicable Setup &amp; Catalyst Archetype Tags — Empirical Success Rate &amp; Recommended Holding Period Summary</span>
+                    <span style="background:#0284c7; color:white; padding:2px 8px; border-radius:10px; font-size:0.72rem; font-weight:700;">Live Paper Ledger + 20Y Out-of-Sample</span>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(235px, 1fr)); gap:8px;">
+                    <div style="background:rgba(255,255,255,0.07); padding:6px 10px; border-radius:6px; border-left:3px solid #ef4444;">
+                        <b>🔴 BEARISH_FADE (Level 1 &amp; 3 Short)</b><br/>
+                        🏆 Win Rate: <b style="color:#4ade80;">{bear_stat.get('badge', '52.2% (24W/22L)')}</b><br/>
+                        ⏳ Rec. Hold: <b>3–10 Sessions (1–2W Short)</b>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.07); padding:6px 10px; border-radius:6px; border-left:3px solid #22c55e;">
+                        <b>🟢 BULLISH (Level 1, 2 &amp; 3 Breakout)</b><br/>
+                        🏆 Win Rate: <b style="color:#fde047;">{bull_stat.get('badge', '0.0% (0W/15L Legacy)')} | Calibrated P(1W)</b><br/>
+                        ⏳ Rec. Hold: <b>5–15 Sessions (1–3W Event Drift)</b>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.07); padding:6px 10px; border-radius:6px; border-left:3px solid #3b82f6;">
+                        <b>🛡️ BULLISH_CONTRARIAN (Level 4 Moat)</b><br/>
+                        🏆 Win Rate: <b style="color:#4ade80;">{moat_stat.get('badge', f'{dl_20y_wr_t1:.1f}% (20Y OOS)')}</b><br/>
+                        ⏳ Rec. Hold: <b>180D–3Y (6M–36M Compounding)</b>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.07); padding:6px 10px; border-radius:6px; border-left:3px solid #f59e0b;">
+                        <b>🧪 Catalyst Archetypes (Levels 1–4)</b><br/>
+                        ⚡ Tech: <b>{tech_arch_stat.get('badge', '44.6%')}</b> • 🧪 USFDA: <b>{usfda_arch_stat.get('badge', '0.0%')}</b><br/>
+                        💰 Div/Buyback: <b>{div_arch_stat.get('badge', '0.0%')}</b> • 🏢 Moats: <b>{dl_20y_wr_t1:.1f}% (20Y)</b>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        with st.expander("📋 View Full Applicable Tags, Level Mapping, Success Rate & Purchased Tickers Matrix (Tab 1 ↔ Tab 4 Bridge)", expanded=False):
+            tag_bridge_rows = [
+                {
+                    "Tag Category": "Setup Direction",
+                    "Applicable Tag": "🔴 BEARISH_FADE (Tactical F&O Short)",
+                    "Applicable Tab 1 Levels": "Level 1 (Right: Fade/Breakdown) & Level 3 (Master Matrix)",
+                    "Recommended Holding Period": bear_stat.get("rec_holding", "3–10 Sessions (1–2W Tactical Short)"),
+                    "Ledger Trades (Open / Closed)": f"{bear_stat.get('total', 0)} ({bear_stat.get('open', 0)} Open / {bear_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": bear_stat.get("badge", "N/A"),
+                    "Purchased Tickers (Open)": bear_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": bear_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Setup Direction",
+                    "Applicable Tag": "🟢 BULLISH (Tactical Breakout / Drift)",
+                    "Applicable Tab 1 Levels": "Level 1 (Left: Move UP), Level 2 (Quadrants) & Level 3",
+                    "Recommended Holding Period": bull_stat.get("rec_holding", "5–15 Sessions (1–3W Event Drift)"),
+                    "Ledger Trades (Open / Closed)": f"{bull_stat.get('total', 0)} ({bull_stat.get('open', 0)} Open / {bull_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": bull_stat.get("badge", "N/A"),
+                    "Purchased Tickers (Open)": bull_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": bull_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Setup Direction",
+                    "Applicable Tag": "🛡️ BULLISH_CONTRARIAN (Dual-Logic Moat)",
+                    "Applicable Tab 1 Levels": "Level 4 (Category 6 Bear-Market Overlay)",
+                    "Recommended Holding Period": moat_stat.get("rec_holding", "180D–3Y (6M–36M Structural Moat)"),
+                    "Ledger Trades (Open / Closed)": f"{moat_stat.get('total', 0)} ({moat_stat.get('open', 0)} Open / {moat_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": moat_stat.get("badge", f"{dl_20y_wr_t1:.1f}% (20Y OOS)"),
+                    "Purchased Tickers (Open)": moat_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": moat_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Catalyst Archetype",
+                    "Applicable Tag": "⚡ Technical Baseline (RSI, MA Breakdown)",
+                    "Applicable Tab 1 Levels": "Level 1 (Outlier Radar) & Level 3 (Master Matrix)",
+                    "Recommended Holding Period": tech_arch_stat.get("rec_holding", "3–10 Sessions (1–2W Swing)"),
+                    "Ledger Trades (Open / Closed)": f"{tech_arch_stat.get('total', 0)} ({tech_arch_stat.get('open', 0)} Open / {tech_arch_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": tech_arch_stat.get("badge", "N/A"),
+                    "Purchased Tickers (Open)": tech_arch_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": tech_arch_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Catalyst Archetype",
+                    "Applicable Tag": "🏢 Physical Moats (Energy, Grid, Cap Goods)",
+                    "Applicable Tab 1 Levels": "Level 4 (Category 6 Dual-Logic Moat Overlay)",
+                    "Recommended Holding Period": moat_arch_stat.get("rec_holding", "180D–3Y (6M–36M Structural Moat)"),
+                    "Ledger Trades (Open / Closed)": f"{moat_arch_stat.get('total', 0)} ({moat_arch_stat.get('open', 0)} Open / {moat_arch_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": moat_arch_stat.get("badge", f"{dl_20y_wr_t1:.1f}% (20Y OOS)"),
+                    "Purchased Tickers (Open)": moat_arch_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": moat_arch_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Catalyst Archetype",
+                    "Applicable Tag": "🧪 USFDA Inspection / Warning Letter",
+                    "Applicable Tab 1 Levels": "Level 1 & Level 3 (Pharma Regulatory Events)",
+                    "Recommended Holding Period": usfda_arch_stat.get("rec_holding", "5–15 Sessions (1–3W Regulatory Drift)"),
+                    "Ledger Trades (Open / Closed)": f"{usfda_arch_stat.get('total', 0)} ({usfda_arch_stat.get('open', 0)} Open / {usfda_arch_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": usfda_arch_stat.get("badge", "N/A"),
+                    "Purchased Tickers (Open)": usfda_arch_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": usfda_arch_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Catalyst Archetype",
+                    "Applicable Tag": "💰 Dividend & Buyback Distribution",
+                    "Applicable Tab 1 Levels": "Level 2 (Dividends & Buybacks Quadrant) & Level 3",
+                    "Recommended Holding Period": div_arch_stat.get("rec_holding", "5–20 Sessions (Cum/Ex-Date Drift)"),
+                    "Ledger Trades (Open / Closed)": f"{div_arch_stat.get('total', 0)} ({div_arch_stat.get('open', 0)} Open / {div_arch_stat.get('closed', 0)} Closed)",
+                    "Historical Success Rate": div_arch_stat.get("badge", "N/A"),
+                    "Purchased Tickers (Open)": div_arch_stat.get("open_tickers", "None"),
+                    "Purchased Tickers (Closed W/L)": div_arch_stat.get("closed_tickers", "None"),
+                },
+                {
+                    "Tag Category": "Catalyst Archetype",
+                    "Applicable Tag": "🎯 Order Wins & Capex / 🔄 Demergers / ✂️ Splits",
+                    "Applicable Tab 1 Levels": "Level 2 (Corporate Action Quadrants) & Level 3",
+                    "Recommended Holding Period": "5–15 Sessions (Order/Splits) | 15–60 Sessions (Demergers)",
+                    "Ledger Trades (Open / Closed)": "Live Corporate Action Drift Tracking",
+                    "Historical Success Rate": "Calibrated per Asset P(1W) / P(2W) Empirical Model",
+                    "Purchased Tickers (Open)": "Tracked per Filing",
+                    "Purchased Tickers (Closed W/L)": "Tracked per Filing",
+                },
+            ]
+            st.dataframe(pd.DataFrame(tag_bridge_rows), use_container_width=True, hide_index=True)
+
         st.markdown("##### ⚡ Level 1: Outlier Decision Radar (Top High-Conviction Setups Sorted by Score)")
+        st.caption(
+            f"🏷️ **Applicable Tags:** `🟢 BULLISH` (Win Rate: **{bull_stat.get('badge', 'Calibrated P(1W)')}** | **Rec. Holding Period: 5–15 Sessions / 1–3W**) "
+            f"& `🔴 BEARISH_FADE` (Win Rate: **{bear_stat.get('badge', '52.2%')}** | **Rec. Holding Period: 3–10 Sessions / 1–2W Short**)"
+        )
         up_candidates = catalyst_df[catalyst_df["1-2W Outlook"].str.contains("Bullish")].sort_values(by="Catalyst Score", ascending=False).head(5)
         down_candidates = catalyst_df[catalyst_df["1-2W Outlook"].str.contains("Distribution")].sort_values(by="Catalyst Score", ascending=True).head(5)
 
         c1, c2 = st.columns(2)
-        cols_summary = ["Ticker", "CMP (₹)", "Catalyst Score", "P(1W) Drift %", "P(2W) Drift %", "Pre-RunUp 5D %", "Vol Surge Ratio", "Active Catalyst"]
+        cols_summary = [
+            "Ticker", "CMP (₹)", "Setup Tag", "Catalyst Archetype", "Tag Success Rate",
+            "Rec. Holding Period", "Catalyst Score", "P(1W) Drift %", "P(2W) Drift %",
+            "Pre-RunUp 5D %", "Vol Surge Ratio", "Active Catalyst"
+        ]
 
         with c1:
-            st.markdown(f"<span style='color: #28a745; font-weight: 700;'>🟢 Top Expected to Move UP ({len(up_candidates)})</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span style='color: #28a745; font-weight: 700;'>🟢 Top Expected to Move UP ({len(up_candidates)})</span> "
+                f"<span style='font-size:0.76rem; color:#475569;'>• Tag: <b>🟢 BULLISH</b> • Rec. Hold: <b>5–15 Sessions (1–3W)</b></span>",
+                unsafe_allow_html=True,
+            )
             if not up_candidates.empty:
                 render_table_freshness_banner("Top Expected to Move UP (Bullish Candidates)", "tab1_up")
                 st.dataframe(
@@ -1222,13 +1564,17 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                         "CMP (₹)": "₹{:.2f}", "Catalyst Score": "{:+.1f}", "P(1W) Drift %": "{}%", "P(2W) Drift %": "{}%",
                         "Pre-RunUp 5D %": "{:+.2f}%", "Vol Surge Ratio": "{:.1f}x"
                     }),
-                    use_container_width=True, height=180
+                    use_container_width=True, height=210
                 )
             else:
                 st.info("No stocks currently meet bullish breakout criteria under current market regime.")
 
         with c2:
-            st.markdown(f"<span style='color: #dc3545; font-weight: 700;'>🔴 Top Expected to Fade / Breakdown ({len(down_candidates)})</span>", unsafe_allow_html=True)
+            st.markdown(
+                f"<span style='color: #dc3545; font-weight: 700;'>🔴 Top Expected to Fade / Breakdown ({len(down_candidates)})</span> "
+                f"<span style='font-size:0.76rem; color:#475569;'>• Tag: <b>🔴 BEARISH_FADE ({bear_stat.get('badge', '52.2%')})</b> • Rec. Hold: <b>3–10 Sessions (1–2W)</b></span>",
+                unsafe_allow_html=True,
+            )
             if not down_candidates.empty:
                 render_table_freshness_banner("Top Expected to Fade / Breakdown (Bearish Candidates)", "tab1_down")
                 st.dataframe(
@@ -1236,7 +1582,7 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                         "CMP (₹)": "₹{:.2f}", "Catalyst Score": "{:+.1f}", "P(1W) Drift %": "{}%", "P(2W) Drift %": "{}%",
                         "Pre-RunUp 5D %": "{:+.2f}%", "Vol Surge Ratio": "{:.1f}x"
                     }),
-                    use_container_width=True, height=180
+                    use_container_width=True, height=210
                 )
             else:
                 st.info("No distribution traps detected.")
@@ -1410,7 +1756,13 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
         detected_swap_opps = _extract_swap_opportunities(df_demerge_preview, catalyst_df, news_items_list)
 
         st.markdown("##### 🏢 Level 2: Corporate Action Catalyst Quadrant")
-        st.caption("How Indian equities statistically react across specific corporate filings: Contracts, Mergers, Dividends, and Stock Splits.")
+        st.caption(
+            "How Indian equities statistically react across specific corporate filings: Contracts, Mergers, Dividends, and Stock Splits. "
+            "🏷️ **Applicable Archetype Tags:** `🎯 Order Wins & Capex` (Rec. Hold: **5–15 Sessions**), "
+            "`🔄 Demergers & Mergers` (Rec. Hold: **15–60 Sessions**), "
+            f"`💰 Dividend & Buyback Distribution` (Ledger: **{div_arch_stat.get('badge', 'Calibrated')}** | Rec. Hold: **5–20 Sessions**), "
+            "`✂️ Splits & Bonus` (Rec. Hold: **5–15 Sessions**)."
+        )
 
         # Surface compact executive arbitrage summary right above the Level 2 tabs whenever an active opportunity exists
         if detected_swap_opps:
@@ -1441,9 +1793,14 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
             f"✂️ Splits & Bonus ({df_splits_c})"
         ])
 
-        cols_quad = ["Ticker", "CMP (₹)", "Catalyst Score", "P(1W) Drift %", "P(2W) Drift %", "Pre-RunUp 5D %", "Vol Surge Ratio", "Close in Range %", "Active Catalyst"]
+        cols_quad = [
+            "Ticker", "CMP (₹)", "Setup Tag", "Catalyst Archetype", "Tag Success Rate",
+            "Rec. Holding Period", "Catalyst Score", "P(1W) Drift %", "P(2W) Drift %",
+            "Pre-RunUp 5D %", "Vol Surge Ratio", "Close in Range %", "Active Catalyst"
+        ]
 
         with q_tab1:
+            st.caption("🏷️ **Applicable Tag:** `🎯 Order Wins & Capex` • **⏳ Recommended Holding Period:** `5–15 Trading Sessions (1–3W Order Execution Drift)`")
             df_orders = catalyst_df[catalyst_df["Catalyst Group"] == "Order Wins & Capex"].sort_values(by="Catalyst Score", ascending=False)
             if not df_orders.empty:
                 render_table_freshness_banner("Order Wins & Capex Quadrant", "tab1_q_orders")
@@ -1452,6 +1809,7 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                 st.info("No fresh contract wins or capex announcements recorded in current batch.")
 
         with q_tab2:
+            st.caption("🏷️ **Applicable Tag:** `🔄 Demergers & Mergers` • **⏳ Recommended Holding Period:** `15–60 Trading Sessions (Record Date / Special Situation Unlock)` or `Immediate Open-Market Switch (T+1)` when Market Ratio exceeds Demerger Ratio")
             df_demerge = df_demerge_preview
             if not df_demerge.empty:
                 render_table_freshness_banner("Demergers & Mergers Quadrant", "tab1_q_demerge")
@@ -1526,12 +1884,14 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                         "Live CMP (₹)": f"₹{sw_res['src_cmp']:,.2f}",
                         "Shares": f"{sw_res['base_sh']:g}",
                         "Market Value (₹)": f"₹{sw_res['sale_proceeds']:,.2f}",
+                        "Rec. Holding Period": "Immediate Switch (T+1)" if sw_res["verdict_code"] == "SWITCH_AT_MARKET" else "Hold Till Record Date (15–60D)",
                     },
                     {
                         "Stock / Leg": f"{sw_res['tgt_name']} (XNSE:{sw_res['tgt_t']})",
                         "Live CMP (₹)": f"₹{sw_res['tgt_cmp']:,.2f}",
                         "Shares": f"{sw_res['swap_sh']:g}",
                         "Market Value (₹)": f"₹{sw_res['demerger_val']:,.2f}",
+                        "Rec. Holding Period": "15–60 Sessions (Post-Swap Unlock)",
                     },
                 ])
                 render_table_freshness_banner(f"{sw_res['src_t']} vs {sw_res['tgt_t']} Swap Leg Valuation", "tab1_q_demerge_legs")
@@ -1554,6 +1914,7 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                     {"Metric": "Net value advantage (after 0.35% friction)", "Result": f"₹{sw_res['net_val_advantage_rs']:+,.2f} ({sw_res['net_improvement_pct']:+.2f}%)", "Unit / interpretation": "₹ (After brokerage, STT & slippage)"},
                     {"Metric": f"Whole {sw_res['tgt_t']} shares purchasable", "Result": f"{sw_res['whole_shares']}", "Unit / interpretation": "shares (Executable whole shares)"},
                     {"Metric": "Cash left after whole-share purchase", "Result": f"₹{sw_res['cash_left_rs']:,.2f}", "Unit / interpretation": "₹ (Residual cash balance)"},
+                    {"Metric": "Recommended Holding Period", "Result": "T+1 Immediate Switch (Then 15–60D Hold)" if sw_res["verdict_code"] == "SWITCH_AT_MARKET" else "15–60 Sessions (Hold for Record Date)", "Unit / interpretation": "Optimal execution & holding window"},
                     {"Metric": "Algorithmic Recommendation", "Result": "SWITCH AT MARKET" if sw_res["verdict_code"] == "SWITCH_AT_MARKET" else ("WAIT FOR DEMERGER" if sw_res["verdict_code"] == "WAIT_FOR_DEMERGER" else "HOLD / PARITY"), "Unit / interpretation": sw_res["verdict_badge"]},
                 ]
                 comp_df = pd.DataFrame(comp_rows)
@@ -1581,6 +1942,10 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
 
 
         with q_tab3:
+            st.caption(
+                f"🏷️ **Applicable Tag:** `💰 Dividend & Buyback Distribution` • **🏆 Ledger Success Rate:** `{div_arch_stat.get('badge', 'Calibrated')}` "
+                "• **⏳ Recommended Holding Period:** `5–20 Trading Sessions (Cum-Date / Ex-Date Distribution Drift)`"
+            )
             df_div = catalyst_df[catalyst_df["Catalyst Group"] == "Dividends & Buybacks"].sort_values(by="Catalyst Score", ascending=False)
             if not df_div.empty:
                 render_table_freshness_banner("Dividends & Buybacks Quadrant", "tab1_q_div")
@@ -1589,6 +1954,7 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
                 st.info("No active dividend or buyback filings tagged in current batch.")
 
         with q_tab4:
+            st.caption("🏷️ **Applicable Tag:** `✂️ Splits & Bonus` • **⏳ Recommended Holding Period:** `5–15 Trading Sessions (Ex-Date Retail Liquidity Drift)`")
             df_splits = catalyst_df[catalyst_df["Catalyst Group"] == "Splits & Bonus"].sort_values(by="Catalyst Score", ascending=False)
             if not df_splits.empty:
                 render_table_freshness_banner("Splits & Bonus Quadrant", "tab1_q_splits")
@@ -1599,9 +1965,19 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
         st.markdown("<hr style='margin-top: 0.6rem; margin-bottom: 0.8rem;' />", unsafe_allow_html=True)
 
         st.markdown(f"##### 🌐 Level 3: Master NIFTY 100 Evaluated Matrix ({len(catalyst_df)} Assets)")
-        st.caption("Sorted strictly by Catalyst Score (Highest Bullish to Lowest Bearish/Fade).")
+        st.caption(
+            "Sorted strictly by Catalyst Score (Highest Bullish to Lowest Bearish/Fade). "
+            f"🏷️ **Applicable Tags:** `🟢 BULLISH` ({len(catalyst_df[catalyst_df['Setup Tag'].str.contains('BULLISH')])} stocks) | "
+            f"`🔴 BEARISH_FADE` ({len(catalyst_df[catalyst_df['Setup Tag'].str.contains('BEARISH_FADE')])} stocks, Win Rate: **{bear_stat.get('badge', '52.2%')}**) | "
+            f"`🟡 NEUTRAL_WATCH` ({len(catalyst_df[catalyst_df['Setup Tag'].str.contains('NEUTRAL')])} stocks) • "
+            "**⏳ Recommended Holding Period:** `3–15 Trading Sessions (Dynamic per Stock Drift Velocity)`."
+        )
         display_all = catalyst_df.sort_values(by="Catalyst Score", ascending=False).reset_index(drop=True)
-        cols_master = ["Ticker", "Name", "CMP (₹)", "Catalyst Score", "1-2W Outlook", "P(1W) Drift %", "P(2W) Drift %", "Pre-RunUp 5D %", "Vol Surge Ratio", "Close in Range %", "Dist 200DMA %", "Active Catalyst"]
+        cols_master = [
+            "Ticker", "Name", "CMP (₹)", "Setup Tag", "Catalyst Archetype", "Tag Success Rate",
+            "Rec. Holding Period", "Catalyst Score", "1-2W Outlook", "P(1W) Drift %", "P(2W) Drift %",
+            "Pre-RunUp 5D %", "Vol Surge Ratio", "Close in Range %", "Dist 200DMA %", "Active Catalyst"
+        ]
         render_table_freshness_banner(f"Master NIFTY 100 Evaluated Matrix ({len(catalyst_df)} Assets)", "tab1_master_matrix")
         st.dataframe(
             display_all[cols_master].style.apply(apply_top3_bot3_styling, axis=None).format({
@@ -1613,7 +1989,12 @@ if nav_choice == "🎯 Dynamic 1-2 Week Screener":
 
         # Level 4: Bear-Market Resilience & Physical Moat Overlay
         st.markdown("<hr style='margin-top: 0.8rem; margin-bottom: 0.8rem;' />", unsafe_allow_html=True)
-        with st.expander("🛡️ Level 4: AI-Powered Deep-Value & Contrarian Bear-Market Overlay (Dual-Logic v4.2)", expanded=False):
+        st.caption(
+            f"🏷️ **Level 4 Applicable Tags:** `🛡️ BULLISH_CONTRARIAN (Dual-Logic Moat)` & `🏢 Physical Moats (Energy, Grid, Cap Goods)` "
+            f"• **🏆 20Y Empirical Win Rate:** `{dl_20y_wr_t1:.1f}%` ({moat_stat.get('open', 0)} Open in Paper Ledger) "
+            "• **⏳ Recommended Holding Period:** `180 Days – 3 Years (6M–36M Structural Compounding)`"
+        )
+        with st.expander("🛡️ Level 4: AI-Powered Deep-Value & Contrarian Bear-Market Overlay (Dual-Logic v5.0)", expanded=False):
             from dual_logic_ui import render_tab1_section6_bear_market_recommendations
             render_tab1_section6_bear_market_recommendations(
                 stocks_market_df=display_all if "display_all" in locals() else catalyst_df,
@@ -2016,15 +2397,93 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
             except Exception:
                 return ""
 
+        # Pre-populate Catalyst_Archetype, Rec. Holding Period, and Square-Off Time on display_ledger for all Tab 4 tables
+        display_ledger["Catalyst_Archetype"] = display_ledger["Active_Catalyst"].apply(classify_catalyst_archetype)
+        display_ledger["Rec. Holding Period"] = display_ledger["Predicted_Outlook"].apply(
+            lambda o: SETUP_REC_HOLDING_MAP.get(str(o).strip().upper(), "5–10 Trading Days (1–2 Weeks)")
+        )
+        display_ledger["Square-Off Time"] = display_ledger.apply(
+            lambda r: r["Date"] if r["Outcome_Status"] in ["SUCCESS", "FAILED"] else "Open (Active)", axis=1
+        )
+
+        # Helper to render interactive drill-down table for any selected category
+        def _render_category_stock_drilldown(sub_df_all: pd.DataFrame, cat_title: str, rec_hold_str: str, status_filter_str: str):
+            sub_open_d = sub_df_all[sub_df_all["Outcome_Status"].isin(["PENDING", "OPEN"])]
+            sub_closed_d = sub_df_all[sub_df_all["Outcome_Status"].isin(["SUCCESS", "FAILED"])]
+            open_summary_txt = _format_ticker_group_summary(sub_open_d, is_closed=False)
+            closed_summary_txt = _format_ticker_group_summary(sub_closed_d, is_closed=True)
+
+            if "Open Positions Only" in status_filter_str:
+                drill_df = sub_open_d.copy()
+            elif "Closed Positions Only" in status_filter_str:
+                drill_df = sub_closed_d.copy()
+            else:
+                drill_df = sub_df_all.copy()
+
+            st.markdown(
+                f"""
+                <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #2563eb; border-radius: 6px; padding: 9px 13px; margin: 6px 0 8px 0; font-size: 0.81rem; color: #1e293b;">
+                    📌 <b>{cat_title}</b> &nbsp;|&nbsp; ⏱️ <b>Recommended Holding Period:</b> <code>{rec_hold_str}</code> &nbsp;|&nbsp; <b>Showing:</b> {len(drill_df)} of {len(sub_df_all)} trades<br/>
+                    🟢 <b>Open Purchased Tickers ({len(sub_open_d)}):</b> <code>{open_summary_txt}</code><br/>
+                    🏁 <b>Closed Purchased Tickers ({len(sub_closed_d)} — W/L):</b> <code>{closed_summary_txt}</code>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            if drill_df.empty:
+                st.info(f"No positions match filter '{status_filter_str}' under {cat_title}.")
+                return
+
+            drill_rows = []
+            for _, d_row in drill_df.iterrows():
+                t_clean = str(d_row.get("Ticker", "")).replace(".NS", "").strip()
+                matched_nm = t_clean
+                for u_item in ACTIVE_UNIVERSE:
+                    if u_item["ticker"].replace(".NS", "") == t_clean:
+                        matched_nm = u_item["name"]
+                        break
+                drill_rows.append({
+                    "Prediction_ID": str(d_row.get("Prediction_ID", "")),
+                    "Purchase Date": str(d_row.get("Date", "")),
+                    "Square-Off Time": str(d_row.get("Square-Off Time", "Open (Active)")),
+                    "Ticker": t_clean,
+                    "Company Name": matched_nm,
+                    "Setup Direction": str(d_row.get("Predicted_Outlook", "")),
+                    "Catalyst Archetype": str(d_row.get("Catalyst_Archetype", "")),
+                    "Rec. Holding Period": str(d_row.get("Rec. Holding Period", rec_hold_str)),
+                    "Days Elapsed": f"{int(d_row.get('Days_Elapsed', 0))}D",
+                    "Entry Price (₹)": float(d_row.get("CMP_At_Prediction", 0.0)),
+                    "Current / Exit (₹)": float(d_row.get("Current_CMP", 0.0)),
+                    "Return %": float(d_row.get("Clean_Ret_Pct", 0.0)),
+                    "Live PnL (₹)": float(d_row.get("Live PnL (₹)", 0.0)),
+                    "Outcome_Status": str(d_row.get("Outcome_Status", "")),
+                    "Active Catalyst": str(d_row.get("Active_Catalyst", "")),
+                })
+            drill_out_df = pd.DataFrame(drill_rows)
+            st.dataframe(
+                drill_out_df.style.format({
+                    "Entry Price (₹)": "₹{:.2f}",
+                    "Current / Exit (₹)": "₹{:.2f}",
+                    "Return %": "{:+.2f}%",
+                    "Live PnL (₹)": "₹{:+,.2f}",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
         # SECTION C: Category Performance Breakdown of Closed Trades
         with st.expander("📊 Performance Breakdown of Closed Trades for Each Category", expanded=True):
             st.markdown("##### 📁 Trade Counts & Performance by Setup Direction & Catalyst Archetype")
-            st.caption(f"Forensic audit breakdown of all {total_trades_count} positions showing Open vs. Closed counts, Win Rate %, Net Realized PnL (₹), Profit Factor, and Payoff Ratio. Negative returns and sub-50% win rates are strictly highlighted in **RED**.")
+            st.caption(
+                f"Forensic audit breakdown of all {total_trades_count} positions showing Open vs. Closed counts, **Recommended Holding Period**, **Purchased Tickers (Open & Closed W/L)**, Win Rate %, Net Realized PnL (₹), Profit Factor, and Payoff Ratio. Use the **🔎 Stock / Ticker Drill-Down Inspector** inside each tab to inspect individual trades under any category."
+            )
 
             cat_tab1, cat_tab2 = st.tabs(["🎯 By Setup Direction", "🧪 By Catalyst Archetype"])
 
             with cat_tab1:
                 outlook_rows = []
+                setup_label_to_code = {}
                 for out_name in ["BEARISH_FADE", "BULLISH", "BULLISH_CONTRARIAN"]:
                     sub_all = display_ledger[display_ledger["Predicted_Outlook"] == out_name]
                     sub_open = sub_all[sub_all["Outcome_Status"].isin(["PENDING", "OPEN"])]
@@ -2052,9 +2511,12 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                         "BULLISH": "🟢 BULLISH (Legacy Tactical Breakout)",
                         "BULLISH_CONTRARIAN": "🛡️ BULLISH_CONTRARIAN (Dual-Logic Moat)"
                     }.get(out_name, out_name)
+                    setup_label_to_code[label_desc] = out_name
+                    rec_hold_val = SETUP_REC_HOLDING_MAP.get(out_name, "5–10 Trading Days (1–2 Weeks)")
 
                     outlook_rows.append({
                         "Setup Direction": label_desc,
+                        "Rec. Holding Period": rec_hold_val,
                         "Total Trades": tot_cnt,
                         "Open Trades": op_cnt,
                         "Closed Trades": cl_cnt,
@@ -2064,7 +2526,9 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                         "Realized PnL (₹)": pnl_val,
                         "Avg Return %": avg_ret,
                         "Profit Factor": f"{pf:.2f}" if pf != 999.0 else "∞",
-                        "Payoff Ratio": f"{payoff:.2f}" if payoff != 999.0 else "∞"
+                        "Payoff Ratio": f"{payoff:.2f}" if payoff != 999.0 else "∞",
+                        "Purchased Tickers (Open)": _format_ticker_group_summary(sub_open, is_closed=False),
+                        "Purchased Tickers (Closed W/L)": _format_ticker_group_summary(sub_closed, is_closed=True),
                     })
 
                 out_df = pd.DataFrame(outlook_rows)
@@ -2081,20 +2545,31 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 render_table_freshness_banner("Setup Direction Breakdown Table", latest_ledger_dt_str, "tab4_cat_out")
                 st.dataframe(styler_out, use_container_width=True)
 
-            with cat_tab2:
-                def get_catalyst_archetype(cat_str):
-                    s = str(cat_str).lower()
-                    if "physical moat" in s:
-                        return "🏢 Physical Moats (Energy, Grid, Cap Goods)"
-                    elif "usfda" in s:
-                        return "🧪 USFDA Inspection / Warning Letter"
-                    elif "dividend" in s or "buyback" in s:
-                        return "💰 Dividend & Buyback Distribution"
-                    else:
-                        return "⚡ Technical Baseline (RSI, MA Breakdown)"
+                st.markdown("###### 🔎 Inspect Purchased Stocks / Tickers by Setup Direction")
+                sd_col1, sd_col2 = st.columns([2.2, 1.8])
+                with sd_col1:
+                    sel_setup_label = st.selectbox(
+                        "Select Setup Direction Category:",
+                        options=[r["Setup Direction"] for r in outlook_rows],
+                        index=0,
+                        key="tab4_drill_setup_dir",
+                    )
+                with sd_col2:
+                    sel_setup_status = st.radio(
+                        "Filter Positions:",
+                        options=["All Positions (Open + Closed)", "Open Positions Only", "Closed Positions Only (Wins & Losses)"],
+                        horizontal=True,
+                        key="tab4_drill_setup_status",
+                    )
+                sel_setup_code = setup_label_to_code.get(sel_setup_label, "BEARISH_FADE")
+                _render_category_stock_drilldown(
+                    sub_df_all=display_ledger[display_ledger["Predicted_Outlook"] == sel_setup_code],
+                    cat_title=sel_setup_label,
+                    rec_hold_str=SETUP_REC_HOLDING_MAP.get(sel_setup_code, "5–10 Trading Days (1–2 Weeks)"),
+                    status_filter_str=sel_setup_status,
+                )
 
-                display_ledger["Catalyst_Archetype"] = display_ledger["Active_Catalyst"].apply(get_catalyst_archetype)
-                
+            with cat_tab2:
                 cat_rows = []
                 for arch_name in [
                     "⚡ Technical Baseline (RSI, MA Breakdown)",
@@ -2122,9 +2597,11 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                     avg_w = float(sub_closed[sub_closed["Outcome_Status"] == "SUCCESS"]["Live PnL (₹)"].mean()) if w_cnt > 0 else 0.0
                     avg_l = abs(float(sub_closed[sub_closed["Outcome_Status"] == "FAILED"]["Live PnL (₹)"].mean())) if l_cnt > 0 else 0.0
                     payoff = round((avg_w / avg_l), 2) if avg_l > 0 else (999.0 if avg_w > 0 else 0.0)
+                    rec_hold_arch = ARCHETYPE_REC_HOLDING_MAP.get(arch_name, "5–10 Trading Days (1–2 Weeks)")
 
                     cat_rows.append({
                         "Catalyst Archetype": arch_name,
+                        "Rec. Holding Period": rec_hold_arch,
                         "Total Trades": tot_cnt,
                         "Open Trades": op_cnt,
                         "Closed Trades": cl_cnt,
@@ -2134,7 +2611,9 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                         "Realized PnL (₹)": pnl_val,
                         "Avg Return %": avg_ret,
                         "Profit Factor": f"{pf:.2f}" if pf != 999.0 else "∞",
-                        "Payoff Ratio": f"{payoff:.2f}" if payoff != 999.0 else "∞"
+                        "Payoff Ratio": f"{payoff:.2f}" if payoff != 999.0 else "∞",
+                        "Purchased Tickers (Open)": _format_ticker_group_summary(sub_open, is_closed=False),
+                        "Purchased Tickers (Closed W/L)": _format_ticker_group_summary(sub_closed, is_closed=True),
                     })
 
                 arch_df = pd.DataFrame(cat_rows)
@@ -2150,6 +2629,29 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 latest_ledger_dt_str = str(display_ledger["Date"].iloc[-1]) if not display_ledger.empty else ""
                 render_table_freshness_banner("Catalyst Archetype Breakdown Table", latest_ledger_dt_str, "tab4_cat_arch")
                 st.dataframe(styler_arch, use_container_width=True)
+
+                st.markdown("###### 🔎 Inspect Purchased Stocks / Tickers by Catalyst Archetype")
+                ar_col1, ar_col2 = st.columns([2.2, 1.8])
+                with ar_col1:
+                    sel_arch_label = st.selectbox(
+                        "Select Catalyst Archetype Category:",
+                        options=[r["Catalyst Archetype"] for r in cat_rows],
+                        index=0,
+                        key="tab4_drill_arch_name",
+                    )
+                with ar_col2:
+                    sel_arch_status = st.radio(
+                        "Filter Positions:",
+                        options=["All Positions (Open + Closed)", "Open Positions Only", "Closed Positions Only (Wins & Losses)"],
+                        horizontal=True,
+                        key="tab4_drill_arch_status",
+                    )
+                _render_category_stock_drilldown(
+                    sub_df_all=display_ledger[display_ledger["Catalyst_Archetype"] == sel_arch_label],
+                    cat_title=sel_arch_label,
+                    rec_hold_str=ARCHETYPE_REC_HOLDING_MAP.get(sel_arch_label, "5–10 Trading Days (1–2 Weeks)"),
+                    status_filter_str=sel_arch_status,
+                )
 
         # SECTION D: Deep Portfolio Analytics, Mathematical Expectancy & Equity Curve
         with st.expander("🔬 Deep Portfolio Analytics, Mathematical Expectancy & Equity Curve", expanded=True):
@@ -2354,6 +2856,7 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
         # =====================================================================
         st.markdown("<div style='margin-top: 0.8rem;'></div>", unsafe_allow_html=True)
         st.markdown("##### 💼 Tactical Swing Portfolio Holdings (₹15,000 Sizing) & Holding Age Breakdown")
+        st.caption("⏱️ **Recommended Holding Period:** `5–10 Trading Days (1–2 Weeks)` for Tactical Swing / F&O Fades • `180D–3Y (Target 6M–36M)` for Dual-Logic Physical Moats (`BULLISH_CONTRARIAN`).")
         
         active_holdings_df = display_ledger[display_ledger["Outcome_Status"].isin(["PENDING", "OPEN"])].copy()
         if not active_holdings_df.empty:
@@ -2380,9 +2883,15 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 entry_score_val = float(h_row.get("Catalyst_Score", 0.0))
                 exit_score_val = float(live_score_lookup.get(t_sym, entry_score_val))
                 remarks_val = str(h_row.get("Remarks", "Active holding."))
+                h_outlook = str(h_row.get("Predicted_Outlook", "BULLISH")).strip().upper()
+                h_arch = str(h_row.get("Catalyst_Archetype", classify_catalyst_archetype(h_row.get("Active_Catalyst", ""))))
+                h_rec_hold = str(h_row.get("Rec. Holding Period", SETUP_REC_HOLDING_MAP.get(h_outlook, "5–10 Trading Days (1–2 Weeks)")))
 
                 portfolio_summary_rows.append({
                     "Asset Name": f"{t_sym} - {matched_name}",
+                    "Setup Direction": h_outlook,
+                    "Catalyst Archetype": h_arch,
+                    "Rec. Holding Period": h_rec_hold,
                     "Purchase Timestamp": raw_dt_str,
                     "Square-Off Time": "Open (Active)",
                     "Total Holding Age": f"{holding_age_days} Days",
@@ -2417,7 +2926,11 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
 
         f1, f2, f3, f4 = st.columns([1, 1, 1, 1])
         with f1:
-            outlook_f = st.selectbox("Filter Outlook / Setup:", ["All Outlooks Combined", "BULLISH (Buy) Only", "BEARISH_FADE (Short) Only"], index=0)
+            outlook_f = st.selectbox(
+                "Filter Outlook / Setup:",
+                ["All Outlooks Combined", "BULLISH (Buy) Only", "BEARISH_FADE (Short) Only", "BULLISH_CONTRARIAN (Dual-Logic Moat) Only"],
+                index=0
+            )
         with f2:
             status_f = st.selectbox("Filter Horizon / Status:", ["All Combined", "PENDING (Open) Only", "Completed (SUCCESS/FAILED) Only"], index=0)
         with f3:
@@ -2426,7 +2939,9 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
             regime_f = st.selectbox("Filter Market Regime:", ["All Regimes Combined", "Bull Market Only", "Bear Market Only", "Sideways / Rangebound Only"], index=0)
 
         filtered_ledger = display_ledger.copy()
-        if "BULLISH" in outlook_f:
+        if "BULLISH_CONTRARIAN" in outlook_f:
+            filtered_ledger = filtered_ledger[filtered_ledger["Predicted_Outlook"] == "BULLISH_CONTRARIAN"]
+        elif "BULLISH" in outlook_f:
             filtered_ledger = filtered_ledger[filtered_ledger["Predicted_Outlook"] == "BULLISH"]
         elif "BEARISH" in outlook_f:
             filtered_ledger = filtered_ledger[filtered_ledger["Predicted_Outlook"] == "BEARISH_FADE"]
@@ -2452,14 +2967,14 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
         # TABLE 2: Ledger Audit Trail
         # =====================================================================
         st.markdown("##### 📑 Ledger Audit Trail (IST Real-Time Sync)")
+        st.caption("⏱️ **Recommended Holding Period:** `5–10 Trading Days (1–2 Weeks)` for Tactical Setups (`BULLISH` / `BEARISH_FADE`) • `180D–3Y (Target 6M–36M)` for Contrarian Physical Moats (`BULLISH_CONTRARIAN`).")
 
-        display_ledger["Square-Off Time"] = display_ledger.apply(
-            lambda r: r["Date"] if r["Outcome_Status"] in ["SUCCESS", "FAILED"] else "Open (Active)", axis=1
-        )
         display_ledger["Entry Catalyst Score"] = display_ledger["Catalyst_Score"].apply(lambda v: f"{float(v):+.1f}")
         display_ledger["Exit / Current Catalyst Score"] = display_ledger.apply(
             lambda r: f"{float(live_score_lookup.get(str(r['Ticker']).replace('.NS', ''), r['Catalyst_Score'])):+.1f}" if r["Outcome_Status"] in ["PENDING", "OPEN"] else f"{float(r['Catalyst_Score']):+.1f}", axis=1
         )
+        filtered_ledger["Entry Catalyst Score"] = display_ledger.loc[filtered_ledger.index, "Entry Catalyst Score"]
+        filtered_ledger["Exit / Current Catalyst Score"] = display_ledger.loc[filtered_ledger.index, "Exit / Current Catalyst Score"]
 
         def highlight_outcomes(df):
             styles = pd.DataFrame("", index=df.index, columns=df.columns)
@@ -2480,9 +2995,10 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
             return styles
 
         cols_display = [
-            "Prediction_ID", "Date", "Square-Off Time", "Ticker", "Trigger_Type", "Market_Regime", 
-            "Recommended_Action", "Holding_Horizon", "Active_Catalyst", "Entry Catalyst Score", "Exit / Current Catalyst Score", "CMP_At_Prediction", 
-            "Current_CMP", "Live PnL (₹)", "Live PnL %", "Confidence", "Days_Elapsed", 
+            "Prediction_ID", "Date", "Square-Off Time", "Ticker", "Predicted_Outlook", "Catalyst_Archetype",
+            "Rec. Holding Period", "Holding_Horizon", "Days_Elapsed", "Trigger_Type", "Market_Regime",
+            "Recommended_Action", "Active_Catalyst", "Entry Catalyst Score", "Exit / Current Catalyst Score",
+            "CMP_At_Prediction", "Current_CMP", "Live PnL (₹)", "Live PnL %", "Confidence",
             "Target_Return_Pct", "Stop_Loss_Pct", "Outcome_Status", "Remarks"
         ]
         existing_cols = [c for c in cols_display if c in filtered_ledger.columns]
@@ -2506,7 +3022,7 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
         # =====================================================================
         st.markdown("<div style='margin-top: 1.0rem;'></div>", unsafe_allow_html=True)
         st.markdown("##### 📅 Daily Purchase & Sale Execution Journal (Closed Positions)")
-        st.caption("Chronological record of fully squared-off positions, execution amounts, entry/exit prices, timestamps, and realized outcomes.")
+        st.caption("Chronological record of fully squared-off positions, setup tags, **Recommended Holding Period vs. Actual Days Held**, execution amounts, entry/exit prices, timestamps, and realized outcomes.")
 
         closed_ledger_df = display_ledger[display_ledger["Outcome_Status"].isin(["SUCCESS", "FAILED"])].copy()
 
@@ -2544,12 +3060,18 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 entry_score_val = float(j_row.get("Catalyst_Score", 0.0))
                 exit_score_val = float(live_score_lookup.get(t_sym, entry_score_val))
                 remarks_val = str(j_row.get("Remarks", "Closed position."))
+                j_arch = str(j_row.get("Catalyst_Archetype", classify_catalyst_archetype(j_row.get("Active_Catalyst", ""))))
+                j_rec_hold = str(j_row.get("Rec. Holding Period", SETUP_REC_HOLDING_MAP.get(outlook, "5–10 Trading Days (1–2 Weeks)")))
 
                 journal_rows.append({
                     "Timestamp": j_row["Date"],
                     "Square-Off Time": sq_time,
                     "Action": action_type,
                     "Ticker": t_sym,
+                    "Setup Direction": outlook,
+                    "Catalyst Archetype": j_arch,
+                    "Rec. Holding Period": j_rec_hold,
+                    "Days Held": f"{int(j_row.get('Days_Elapsed', 0))} Days",
                     "Confidence Level": confidence_val,
                     "Entry Catalyst Score": f"{entry_score_val:+.1f}",
                     "Exit Catalyst Score": f"{exit_score_val:+.1f}",
@@ -2594,7 +3116,7 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
         # =====================================================================
         st.markdown("<div style='margin-top: 1.5rem;'></div>", unsafe_allow_html=True)
         st.markdown("##### 📅 Daily Purchase & Sale Execution Journal (Open Positions Only)")
-        st.caption("Chronological record tracking active open holdings currently pending square-off, including analytical trade rationale.")
+        st.caption("Chronological record tracking active open holdings currently pending square-off, including Setup Tag, **Recommended Holding Period vs. Days Elapsed**, and analytical trade rationale.")
 
         open_ledger_df = display_ledger[display_ledger["Outcome_Status"].isin(["PENDING", "OPEN"])].copy()
 
@@ -2614,12 +3136,18 @@ elif nav_choice == "📊 Paper Prediction Audit & Win Rate":
                 entry_score_val = float(o_row.get("Catalyst_Score", 0.0))
                 exit_score_val = float(live_score_lookup.get(t_sym, entry_score_val))
                 remarks_val = str(o_row.get("Remarks", "Active open position."))
+                o_arch = str(o_row.get("Catalyst_Archetype", classify_catalyst_archetype(o_row.get("Active_Catalyst", ""))))
+                o_rec_hold = str(o_row.get("Rec. Holding Period", SETUP_REC_HOLDING_MAP.get(outlook, "5–10 Trading Days (1–2 Weeks)")))
 
                 open_rows.append({
                     "Timestamp": o_row["Date"],
                     "Square-Off Time": "Open (Active)",
                     "Action": action_type,
                     "Ticker": t_sym,
+                    "Setup Direction": outlook,
+                    "Catalyst Archetype": o_arch,
+                    "Rec. Holding Period": o_rec_hold,
+                    "Days Elapsed": f"{int(o_row.get('Days_Elapsed', 0))} Days",
                     "Confidence Level": confidence_val,
                     "Entry Catalyst Score": f"{entry_score_val:+.1f}",
                     "Current Catalyst Score": f"{exit_score_val:+.1f}",

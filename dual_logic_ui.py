@@ -914,7 +914,7 @@ def render_active_long_term_portfolio_snapshot_section(
                     <div>
                         <span style="font-weight: 800; font-size: 1.05rem; color: #f8fafc;">🏛️ {title}</span>
                         <div style="font-size: 0.78rem; color: #94a3b8; margin-top: 2px;">
-                            Dual-Logic v5.0 Institutional Bear Resilience • Volatility-Calibrated Tranches • Zero-Duplicate Guard • Real-Time XIRR Return Engine
+                            Dual-Logic v5.0 Institutional Bear Resilience • Tag: <b>🛡️ BULLISH_CONTRARIAN / 🏢 Physical Moat</b> • <b>⏳ Recommended Holding Period: 180 Days – 3 Years (6M–36M Target)</b> • Real-Time XIRR Engine
                         </div>
                     </div>
                     <span style="background-color: #0284c7; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700;">
@@ -961,6 +961,8 @@ def render_active_long_term_portfolio_snapshot_section(
             target_xirr_col.append("+32.8% p.a.")
 
         disp_df["Asset Name"] = name_col
+        disp_df["Setup & Archetype Tag"] = "🛡️ BULLISH_CONTRARIAN • 🏢 Physical Moat"
+        disp_df["Rec. Holding Period"] = "180D–3Y (Target 6M–36M)"
         disp_df["Holding Age"] = days_held_col
         disp_df["Target XIRR"] = target_xirr_col
         disp_df["Duplicate Guard"] = "🔒 Active (No Re-buy)"
@@ -968,7 +970,9 @@ def render_active_long_term_portfolio_snapshot_section(
         rename_cols = {
             "Ticker": "Symbol",
             "Asset Name": "Asset / Company",
+            "Setup & Archetype Tag": "Setup & Archetype Tag",
             "Category": "Strategy / Physical Moat",
+            "Rec. Holding Period": "Rec. Holding Period",
             "Execution_Timestamp": "Entry Timestamp (IST)",
             "Holding Age": "Days Held",
             "Entry_Price": "Entry Price (₹)",
@@ -985,7 +989,8 @@ def render_active_long_term_portfolio_snapshot_section(
         }
 
         cols_order = [
-            "Symbol", "Asset / Company", "Strategy / Physical Moat", "Entry Timestamp (IST)", 
+            "Symbol", "Asset / Company", "Setup & Archetype Tag", "Strategy / Physical Moat",
+            "Rec. Holding Period", "Entry Timestamp (IST)", 
             "Days Held", "Entry Price (₹)", "Live CMP (₹)", "Qty", "Invested Capital (₹)", 
             "Current Value (₹)", "Unrealized P&L (₹)", "Return %", "Stop-Loss (₹)", 
             "Target (₹)", "Target XIRR (180D)", "Duplicate Guard"
@@ -2267,6 +2272,9 @@ def compute_live_deep_value_candidates(stocks_df=None, etfs_df=None, base_budget
             "Name": name,
             "Sector": sector,
             "Moat_Type": moat_type,
+            "Setup_Tag": "🛡️ BULLISH_CONTRARIAN",
+            "Catalyst_Archetype": "🏢 Physical Moats (Energy/Grid/CapGoods)",
+            "Rec_Holding_Period": "180D–3Y (6M–36M Moat)",
             "CMP (₹)": cmp_val,
             "Composite_Score": round(norm_score, 3),
             "Dual_Logic_Score": round(norm_score, 3),
@@ -2583,9 +2591,9 @@ def render_tab1_section6_bear_market_recommendations(stocks_market_df=None, etfs
 
     st.markdown(
         f"""
-        <div style="background: #f1f5f9; padding: 8px 14px; border-radius: 6px; font-size: 0.82rem; color: #1e293b; margin: 8px 0 10px 0; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #059669;">
+        <div style="background: #f1f5f9; padding: 8px 14px; border-radius: 6px; font-size: 0.82rem; color: #1e293b; margin: 8px 0 10px 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; border-left: 4px solid #059669;">
             <span><b>Category 6 Moat Breadth Pulse:</b> 🟢 High-Conviction Buys: <b>{len(buy_picks)} ({buy_pct:.0f}%)</b> | 🟡 Watchlist Dips: <b>{len(watch_picks)} ({watch_pct:.0f}%)</b> | ⚪ Capital Preservation: <b>{len(neutral_picks)}</b></span>
-            <span>🔒 Engine: <b>Locked Production (v5.0)</b> | 20Y Out-of-Sample Win Rate: <b>{win_rate_20y_str}</b> | Target: <b>&ge; 10% CAGR</b></span>
+            <span>🏷️ Tags: <b>🛡️ BULLISH_CONTRARIAN • 🏢 Physical Moats</b> | 🏆 20Y Success Rate: <b>{win_rate_20y_str}</b> | ⏳ Rec. Holding Period: <b>180 Days – 3 Years (6M–36M)</b></span>
         </div>
         """,
         unsafe_allow_html=True
@@ -2707,7 +2715,8 @@ def render_tab1_section6_bear_market_recommendations(stocks_market_df=None, etfs
             filtered_table = filtered_table[filtered_table["Action_Signal"].str.contains("HIGH-CONVICTION|WATCHLIST", na=False)]
 
         disp_cols = [
-            "Ticker", "Name", "Sector", "CMP (₹)", "Composite_Score", "Hist_20Y_Win_Rate_Pct", "Hist_Median_3Y_CAGR_Pct",
+            "Ticker", "Name", "Sector", "Setup_Tag", "Catalyst_Archetype", "Rec_Holding_Period",
+            "CMP (₹)", "Composite_Score", "Hist_20Y_Win_Rate_Pct", "Hist_Median_3Y_CAGR_Pct",
             "Technical_Score", "Fundamental_Score", "Merton_DD", "Altman_Z_Double_Prime", "ATR_14", "RSI (14D)",
             "52W_Low (₹)", "Dist_52W_Low_Pct", "Weekly_Low (₹)", "Dist_Weekly_Low_Pct",
             "Day_Low (₹)", "Dist_Day_Low_Pct", "FII_Pct", "FII_12M_Chg", "DII_Pct", "DII_12M_Chg", "Institutional_Trend",
@@ -2717,6 +2726,9 @@ def render_tab1_section6_bear_market_recommendations(stocks_market_df=None, etfs
         valid_cols = [c for c in disp_cols if c in filtered_table.columns]
 
         rename_cols = {
+            "Setup_Tag": "Setup Tag",
+            "Catalyst_Archetype": "Catalyst Archetype",
+            "Rec_Holding_Period": "Rec. Holding Period",
             "Composite_Score": "Composite Score 🟢 HTB",
             "Hist_20Y_Win_Rate_Pct": "20Y Win Rate % 🟢 HTB",
             "Hist_Median_3Y_CAGR_Pct": "20Y Med CAGR % 🟢 HTB",
