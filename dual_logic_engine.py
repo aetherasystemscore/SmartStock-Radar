@@ -811,12 +811,15 @@ class DualLogicBacktestEngine:
     # -----------------------------------------------------------------
     # VALIDATION MATRIX (SECTION 6 OF SPECIFICATION)
     # -----------------------------------------------------------------
-    def generate_validation_matrix(self) -> pd.DataFrame:
+    def generate_validation_matrix(self, force_recompute: bool = False) -> pd.DataFrame:
         """
         Generates the historical benchmark validation matrix comparing
         Unoptimized vs. Closed-Loop Optimized & Locked win rates across
         20-year stress cycles (GFC, Commodity Slump, COVID, Rate Hike).
         """
+        if not force_recompute and self.cached_matrix is not None and not self.cached_matrix.empty:
+            return self.cached_matrix
+
         saved_weights = self.weights.copy()
         matrix_rows = []
 
@@ -958,12 +961,21 @@ class DualLogicBacktestEngine:
     # PERSISTENCE & RECORD FINDINGS
     # -----------------------------------------------------------------
     def save_findings(self) -> Dict[str, Any]:
-        matrix_df = self.generate_validation_matrix()
+        matrix_df = self.generate_validation_matrix(force_recompute=True)
         eval_metrics = self.logic_c_evaluate()
-        pwfcv = self.evaluate_walk_forward_cv()
+        pwfcv = self.run_purged_walk_forward_cv()
         diagnostics = self.run_early_detection_audit()
 
-        findings = {
+        existing_findings = {}
+        if os.path.exists(FINDINGS_JSON_PATH):
+            try:
+                with open(FINDINGS_JSON_PATH, "r", encoding="utf-8") as f:
+                    existing_findings = json.load(f)
+            except Exception:
+                existing_findings = {}
+
+        findings = dict(existing_findings)
+        findings.update({
             "framework_version": "v5.0-Production",
             "execution_horizon": "2006-2026 (20 Years)",
             "validation_method": "Purged Walk-Forward Cross-Validation (P-WFCV) with Solvency Gating",
@@ -977,14 +989,18 @@ class DualLogicBacktestEngine:
             "win_rate": eval_metrics["win_rate"],
             "overall_oos_win_rate": pwfcv["overall_oos_win_rate"],
             "overall_oos_accuracy": pwfcv["overall_oos_accuracy"],
+            "oos_mean_sharpe": pwfcv["oos_mean_sharpe"],
+            "pbo_probability_backtest_overfitting": pwfcv["pbo_probability_backtest_overfitting"],
+            "total_oos_evals": pwfcv["total_oos_evals"],
+            "total_oos_buys": pwfcv["total_oos_buys"],
             "mape": eval_metrics["mape"],
             "total_evals": eval_metrics["total_evals"],
             "validation_matrix": matrix_df.to_dict(orient="records"),
             "walk_forward_folds": pwfcv["folds_table"].to_dict(orient="records"),
             "early_detection_audit": diagnostics
-        }
+        })
 
-        with open(FINDINGS_JSON_PATH, "w") as f:
+        with open(FINDINGS_JSON_PATH, "w", encoding="utf-8") as f:
             json.dump(findings, f, indent=4)
 
         # Append to runs audit CSV
@@ -1044,6 +1060,19 @@ class DualLogicBacktestEngine:
                     engine.last_optimized_timestamp = data.get("last_optimized_timestamp", "2026-10-17 12:00:00")
                     engine.drift_status = data.get("drift_status", "LOCKED_PRODUCTION")
                     engine.drift_error_pct = data.get("drift_error_pct", 0.0)
+                    if "validation_matrix" in data and data["validation_matrix"]:
+                        engine.cached_matrix = pd.DataFrame(data["validation_matrix"])
+                    if "walk_forward_folds" in data and "oos_mean_sharpe" in data:
+                        engine.p_wfcv_results = {
+                            "folds_table": pd.DataFrame(data["walk_forward_folds"]),
+                            "overall_oos_win_rate": data.get("overall_oos_win_rate", 0.0),
+                            "overall_oos_accuracy": data.get("overall_oos_accuracy", 0.0),
+                            "oos_mean_sharpe": data.get("oos_mean_sharpe", 0.0),
+                            "pbo_probability_backtest_overfitting": data.get("pbo_probability_backtest_overfitting", 0.0),
+                            "total_oos_evals": data.get("total_oos_evals", 0),
+                            "total_oos_buys": data.get("total_oos_buys", 0),
+                            "embargo_months": 6
+                        }
                     logger.info("Loaded locked production engine state from dual_logic_findings.json.")
             except Exception as e:
                 logger.warning(f"Error loading findings: {e}. Using production default weights.")
@@ -1054,7 +1083,8 @@ class DualLogicBacktestEngine:
             engine.is_locked = True
             engine.save_findings()
 
-        engine.run_purged_walk_forward_cv()
+        if not engine.p_wfcv_results:
+            engine.run_purged_walk_forward_cv()
         cls._engine_cache = engine
         cls._engine_mtime = mtime
         return engine

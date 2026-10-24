@@ -20,18 +20,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import sys
 import importlib
 
-# Safely import and reload local modules to handle Streamlit Cloud sys.modules hot-reload caching
-try:
-    importlib.invalidate_caches()
-    for _mod_name in ["ticker_utils", "dual_logic_engine", "dual_logic_ui"]:
-        if _mod_name in sys.modules:
-            try:
-                importlib.reload(sys.modules[_mod_name])
-            except Exception:
-                del sys.modules[_mod_name]
-except Exception:
-    pass
-
+# Safely import local modules without forcing full re-execution on every Streamlit widget rerun
 try:
     import ticker_utils
     if not hasattr(ticker_utils, "get_empirical_ticker_memory"):
@@ -421,10 +410,31 @@ def fetch_corporate_catalysts(active_universe):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def load_market_data(tickers):
-    download_list = list(tickers) + ["^NSEI", "^INDIAVIX"]
-    now_str = datetime.datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+    extra_dl_tickers = []
     try:
-        df = yf.download(download_list, period="1y", interval="1d", group_by="ticker", auto_adjust=True, threads=True)
+        from dual_logic_ui import UNIVERSE_PROFILES
+        extra_dl_tickers = [p["ticker"] for p in UNIVERSE_PROFILES if "ticker" in p]
+    except Exception:
+        pass
+    download_list = sorted(set(list(tickers) + extra_dl_tickers + ["^NSEI", "^INDIAVIX"]))
+    now_str = datetime.datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
+    force_live = bool(st.session_state.pop("_force_live_download", False))
+
+    if not force_live and os.path.exists(MARKET_CACHE_FILE):
+        try:
+            cache_age_sec = max(0.0, datetime.datetime.now().timestamp() - os.path.getmtime(MARKET_CACHE_FILE))
+            if cache_age_sec < 900:
+                cached_df = pd.read_parquet(MARKET_CACHE_FILE)
+                if isinstance(cached_df.columns, pd.MultiIndex) and len(cached_df.columns.levels[0]) >= 80:
+                    mtime_dt = datetime.datetime.fromtimestamp(os.path.getmtime(MARKET_CACHE_FILE), tz=IST)
+                    cached_df.attrs["is_cache_fallback"] = False
+                    cached_df.attrs["fetched_at_ist"] = mtime_dt.strftime("%Y-%m-%d %H:%M:%S IST")
+                    return cached_df
+        except Exception:
+            pass
+
+    try:
+        df = yf.download(download_list, period="1y", interval="1d", group_by="ticker", auto_adjust=True, threads=4)
         if df is not None and not df.empty and len(df) > 10:
             try:
                 os.makedirs(os.path.dirname(MARKET_CACHE_FILE), exist_ok=True)
@@ -683,12 +693,22 @@ def audit_and_update_outcomes(raw_data):
                     pred_date=raw_date_str
                 )
 
-                ledger.at[idx, "Current_CMP"] = res.get("exit_price", res.get("exit_p", init_p))
-                ledger.at[idx, "Realized_Return_Pct"] = res.get("realized_ret", 0.0)
-                ledger.at[idx, "Days_Elapsed"] = res.get("days_elapsed", 0)
-                if res.get("status") in ["SUCCESS", "FAILED"]:
-                    ledger.at[idx, "Outcome_Status"] = res["status"]
-                changed = True
+                new_cmp = float(res.get("exit_price", res.get("exit_p", init_p)))
+                new_ret = float(res.get("realized_ret", 0.0))
+                new_days = int(res.get("days_elapsed", 0))
+                old_cmp = float(ledger.at[idx, "Current_CMP"]) if pd.notna(ledger.at[idx, "Current_CMP"]) else 0.0
+                old_ret = float(ledger.at[idx, "Realized_Return_Pct"]) if pd.notna(ledger.at[idx, "Realized_Return_Pct"]) else 0.0
+                old_days = int(ledger.at[idx, "Days_Elapsed"]) if pd.notna(ledger.at[idx, "Days_Elapsed"]) else -1
+                old_status = str(ledger.at[idx, "Outcome_Status"])
+                new_status = res["status"] if res.get("status") in ["SUCCESS", "FAILED"] else old_status
+
+                if (abs(new_cmp - old_cmp) > 0.01 or abs(new_ret - old_ret) > 0.01
+                        or new_days != old_days or new_status != old_status):
+                    ledger.at[idx, "Current_CMP"] = new_cmp
+                    ledger.at[idx, "Realized_Return_Pct"] = new_ret
+                    ledger.at[idx, "Days_Elapsed"] = new_days
+                    ledger.at[idx, "Outcome_Status"] = new_status
+                    changed = True
 
     if changed:
         commit_github_ledger(ledger, sha)
@@ -745,6 +765,13 @@ def compute_predictive_catalyst_metrics(raw_data, news_map, universe):
         rs = gain / loss.replace(0, np.nan)
         rsi_series = 100.0 - (100.0 / (1.0 + rs))
         rsi_val = float(rsi_series.iloc[-1]) if not pd.isna(rsi_series.iloc[-1]) else 50.0
+
+        # 14-period Average True Range (ATR) for Dual-Logic microstructure reuse
+        prev_c = c.shift(1)
+        tr = pd.concat([(h - l), (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
+        atr_series = tr.rolling(14).mean()
+        atr_14 = float(atr_series.iloc[-1]) if len(atr_series) >= 14 and not pd.isna(atr_series.iloc[-1]) else float(cmp * 0.022)
+        atr_pct = round((atr_14 / max(0.01, cmp)) * 100.0, 2)
 
         cat_info = news_map.get(clean_sym, None)
         if cat_info:
@@ -826,6 +853,8 @@ def compute_predictive_catalyst_metrics(raw_data, news_map, universe):
             "Dist 52W Low %": dist_52w_low,
             "52W High (₹)": round(high_52w, 2),
             "Dist 52W High %": dist_52w_high,
+            "ATR_14": round(atr_14, 2),
+            "ATR_Pct": atr_pct,
             "Active Catalyst": cat_name,
             "Catalyst Group": cat_group,
             "1-2W Outlook": outlook,
@@ -928,7 +957,11 @@ NAV_TABS = [
 ]
 
 url_tab = st.query_params.get("tab", None)
-if "active_nav_tab" not in st.session_state:
+if "_pending_nav_tab" in st.session_state:
+    pending_tab = st.session_state.pop("_pending_nav_tab")
+    if pending_tab in NAV_TABS:
+        st.session_state["active_nav_tab"] = pending_tab
+elif "active_nav_tab" not in st.session_state:
     if url_tab in NAV_TABS:
         st.session_state["active_nav_tab"] = url_tab
     else:
@@ -955,9 +988,12 @@ def trigger_full_app_refresh():
         sync_paper_trades_with_live_quotes()
     except Exception:
         pass
-    st.session_state["last_global_refresh_ts"] = datetime.datetime.now(IST)
+    now_ist = datetime.datetime.now(IST)
+    st.session_state["last_global_refresh_ts"] = now_ist
+    st.session_state["last_full_refresh_dt"] = now_ist
     st.session_state["manual_refresh_count"] = st.session_state.get("manual_refresh_count", 0) + 1
-    st.session_state["active_nav_tab"] = saved_active
+    st.session_state["_force_live_download"] = True
+    st.session_state["_pending_nav_tab"] = saved_active
     st.query_params["tab"] = saved_active
     st.rerun()
 

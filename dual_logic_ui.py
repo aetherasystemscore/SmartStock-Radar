@@ -62,6 +62,7 @@ from data_pipeline_20y import (
 
 PULSE_LEDGER_CSV = os.path.join(CURRENT_DIR, "catalyst_prediction_ledger.csv")
 
+@st.cache_data(ttl=900, show_spinner=False)
 def _load_cached_universe_cmp() -> dict:
     """Loads latest empirical closing prices from local parquet caches without any hardcoded prices."""
     cmp_map = {}
@@ -84,9 +85,6 @@ def _load_cached_universe_cmp() -> dict:
     return cmp_map
 
 
-FALLBACK_UNIVERSE_CMP = _load_cached_universe_cmp()
-
-
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_live_market_quotes(tickers_tuple):
     """
@@ -97,7 +95,7 @@ def fetch_live_market_quotes(tickers_tuple):
         return quotes
     try:
         ns_tickers = [f"{t}.NS" if not t.endswith(".NS") else t for t in tickers_tuple]
-        data = yf.download(ns_tickers, period="5d", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
+        data = yf.download(ns_tickers, period="5d", interval="1d", group_by="ticker", auto_adjust=True, progress=False, threads=False)
         for t_orig in tickers_tuple:
             clean = t_orig.replace(".NS", "").strip().upper()
             ns = f"{clean}.NS"
@@ -119,34 +117,46 @@ def fetch_live_market_quotes(tickers_tuple):
     return quotes
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def fetch_complete_universe_technicals(tickers_tuple):
     """
     Fetches 1-year historical daily bars for universe tickers and computes:
     CMP, 52W High, 52W Low, Dist 52W High %, Dist 52W Low %, Weekly Low, Dist Weekly Low %,
-    Today Low, Dist Today Low %, 14D RSI, and Dist 200DMA %. Caches for 5 minutes.
+    Today Low, Dist Today Low %, 14D RSI, and Dist 200DMA %. Caches for 15 minutes.
+    Reuses MARKET_CACHE_FILE first to prevent duplicate Yahoo Finance API throttling.
     """
     results = {}
     if not tickers_tuple:
         return results
     ns_tickers = [f"{t}.NS" if not t.endswith(".NS") else t for t in tickers_tuple]
-    raw_dl = None
-    try:
-        raw_dl = yf.download(ns_tickers, period="1y", interval="1d", group_by="ticker", auto_adjust=True, progress=False)
-        if raw_dl is not None and not raw_dl.empty and len(raw_dl) > 10:
-            try:
-                raw_dl.to_parquet(MARKET_CACHE_FILE)
-            except Exception:
-                pass
-    except Exception as e:
-        logger.warning(f"yfinance download in technicals failed: {e}")
-
-    if (raw_dl is None or raw_dl.empty) and os.path.exists(MARKET_CACHE_FILE):
+    cached_dl = None
+    if os.path.exists(MARKET_CACHE_FILE):
         try:
-            raw_dl = pd.read_parquet(MARKET_CACHE_FILE)
-            logger.info("Loaded universe technicals from market_cache.parquet snapshot.")
+            cached_dl = pd.read_parquet(MARKET_CACHE_FILE)
         except Exception:
-            pass
+            cached_dl = None
+
+    missing_ns = []
+    if cached_dl is not None and not cached_dl.empty and isinstance(cached_dl.columns, pd.MultiIndex):
+        avail_syms = set(cached_dl.columns.levels[0])
+        for ns in ns_tickers:
+            clean = ns.replace(".NS", "")
+            if ns not in avail_syms and clean not in avail_syms:
+                missing_ns.append(ns)
+    else:
+        missing_ns = list(ns_tickers)
+
+    raw_dl = None
+    if missing_ns:
+        try:
+            raw_dl = yf.download(missing_ns, period="1y", interval="1d", group_by="ticker", auto_adjust=True, progress=False, threads=False)
+            if raw_dl is not None and not raw_dl.empty and len(raw_dl) > 10 and len(missing_ns) >= 50:
+                try:
+                    raw_dl.to_parquet(MARKET_CACHE_FILE)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"yfinance download in technicals failed: {e}")
 
     hist_20y_dl = None
     hist_20y_path = os.path.join(DATA_DIR, "historical_20y_bars.parquet")
@@ -156,15 +166,18 @@ def fetch_complete_universe_technicals(tickers_tuple):
             clean = t.replace(".NS", "").strip().upper()
             ns = f"{clean}.NS"
             sub = pd.DataFrame()
-            if raw_dl is not None and not raw_dl.empty:
-                if isinstance(raw_dl.columns, pd.MultiIndex):
-                    for cand in [ns, clean]:
-                        if cand in raw_dl.columns.levels[0]:
-                            sub = raw_dl[cand].dropna()
-                            break
-                else:
-                    if "Close" in raw_dl.columns and len(tickers_tuple) == 1:
-                        sub = raw_dl.dropna()
+            for source_dl, single_len in [(raw_dl, len(missing_ns)), (cached_dl, 999)]:
+                if not sub.empty and len(sub) >= 5:
+                    break
+                if source_dl is not None and not source_dl.empty:
+                    if isinstance(source_dl.columns, pd.MultiIndex):
+                        for cand in [ns, clean]:
+                            if cand in source_dl.columns.levels[0]:
+                                sub = source_dl[cand].dropna()
+                                break
+                    else:
+                        if "Close" in source_dl.columns and single_len == 1:
+                            sub = source_dl.dropna()
 
             if (sub.empty or len(sub) < 5) and os.path.exists(hist_20y_path):
                 try:
@@ -287,11 +300,14 @@ def trigger_dl_global_refresh():
     except Exception:
         pass
     sync_paper_trades_with_live_quotes()
-    st.session_state["last_full_refresh_dt"] = datetime.datetime.now(IST_TZ)
+    now_ist = datetime.datetime.now(IST_TZ)
+    st.session_state["last_full_refresh_dt"] = now_ist
+    st.session_state["last_global_refresh_ts"] = now_ist
     st.session_state["manual_refresh_count"] = st.session_state.get("manual_refresh_count", 0) + 1
     st.session_state["used_market_cache_fallback"] = False
+    st.session_state["_force_live_download"] = True
     if saved_active:
-        st.session_state["active_nav_tab"] = saved_active
+        st.session_state["_pending_nav_tab"] = saved_active
         try:
             st.query_params["tab"] = saved_active
         except Exception:
@@ -344,11 +360,13 @@ def render_dl_table_freshness_banner(table_name: str, data_ts_str: str = None, k
         unsafe_allow_html=True,
     )
     now_ist = datetime.datetime.now(IST_TZ)
-    last_dt = st.session_state.get("last_full_refresh_dt", None)
+    last_dt = st.session_state.get("last_full_refresh_dt", None) or st.session_state.get("last_global_refresh_ts", None)
+    if last_dt is not None and getattr(last_dt, "tzinfo", None) is None:
+        last_dt = last_dt.replace(tzinfo=IST_TZ)
     manual_count = st.session_state.get("manual_refresh_count", 0)
     used_fallback = st.session_state.get("used_market_cache_fallback", False)
 
-    age_mins = ((now_ist - last_dt).total_seconds() / 60.0) if last_dt is not None else 999.0
+    age_mins = max(0.0, (now_ist - last_dt).total_seconds() / 60.0) if last_dt is not None else 999.0
     is_stale = (manual_count == 0) or (age_mins > 15.0) or used_fallback
 
     c_ban, c_btn = st.columns([4.3, 0.7])
@@ -549,7 +567,8 @@ def execute_long_term_paper_trade(candidate, current_user="PulsePro_Trader", sav
     cmp_val = float(candidate.get("CMP (₹)", 0.0))
     if cmp_val <= 0:
         live_q = fetch_live_market_quotes((full_sym,))
-        cmp_val = float(live_q.get(full_sym) or live_q.get(sym) or FALLBACK_UNIVERSE_CMP.get(full_sym) or FALLBACK_UNIVERSE_CMP.get(sym, 0.0))
+        fallback_map = _load_cached_universe_cmp()
+        cmp_val = float(live_q.get(full_sym) or live_q.get(sym) or fallback_map.get(full_sym) or fallback_map.get(sym, 0.0))
 
     # Guard against duplicates
     active_trades, _ = get_active_long_term_trades()
@@ -2048,7 +2067,7 @@ def compute_live_deep_value_candidates(stocks_df=None, etfs_df=None, base_budget
     # Fetch active portfolio positions for duplicate check
     active_trades, _ = get_active_long_term_trades(live_market_lookup)
 
-    fallback_cmp = FALLBACK_UNIVERSE_CMP
+    fallback_cmp = _load_cached_universe_cmp()
     latest_grid_load = 0.88
     if engine is not None and getattr(engine, "data", None) is not None and not engine.data.empty and "Power_Grid_Load_Index" in engine.data.columns:
         try:
@@ -2784,7 +2803,7 @@ def render_tab1_section6_bear_market_recommendations(stocks_market_df=None, etfs
         with c_rm1:
             if st.button("🔄 Rerun 20Y Analytics Pipeline", key="btn_rerun_20y_analytics", use_container_width=True, help="Reruns the full 20-year (2006–2026) multi-regime backtest across 756 stress points and updates the validation matrix."):
                 with st.spinner("Rerunning 20-Year Historical Analytics & Stress-Cycle Evaluations..."):
-                    engine.generate_validation_matrix()
+                    engine.generate_validation_matrix(force_recompute=True)
                     trigger_dl_global_refresh()
 
         matrix_df = engine.generate_validation_matrix()
