@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "last_updated_ist": "2026-10-28 17:40:00 IST",
+  "active_logic_epoch": "v5.1_Regime_Stable_Guardrails",
+  "epoch_cutoffs": {
+    "v4.0_Initial_Baseline": {
+      "start_date": "2026-09-08",
+      "end_date": "2026-09-30",
+      "description": "Initial Tactical Swing & Mean-Reversion Fade Engine"
+    },
+    "v5.0_PWFCV_Platt_Calibration": {
+      "start_date": "2026-10-01",
+      "end_date": "2026-10-28",
+      "description": "Added Dual-Logic Bear Resilience Physical Moats, P-WFCV, Merton DD / Altman Z'', Platt Calibration"
+    },
+    "v5.1_Regime_Stable_Guardrails": {
+      "start_date": "2026-10-29",
+      "end_date": null,
+      "description": "Daemon/App Parity, Bimodal Runup Gate, 2.2x ATR Dynamic Stops + Day-1 Wick Guard, 5D Ticker Cooldown + Empirical Bayes Blacklist, Strict USFDA Sector/Boundary Regex"
+    }
+  },
+  "waiting_for_data_cohorts": [
+    {
+      "cohort_id": "DUAL_LOGIC_V5_0_OCT16_MOATS",
+      "trigger_type": "DUAL_LOGIC_V5.0_BEAR_RESILIENCE",
+      "entry_date": "2026-10-16",
+      "tickers": ["ADANIPORTS.NS", "JSWSTEEL.NS", "BPCL.NS", "GRASIM.NS", "LT.NS", "POWERGRID.NS"],
+      "target_horizon_days": 180,
+      "min_evaluation_days": 30,
+      "current_days_elapsed": 7,
+      "current_green_ratio": "4/6 (66.7%)",
+      "current_mean_return_pct": 0.82,
+      "policy": "HOLD_LOGIC_WAIT_FOR_DATA: Cohort is only 7 trading sessions into a 180-day horizon and 66.7% of positions are already profitable (+0.82% avg). Do not modify P-WFCV moat weights until at least 30-60 sessions have elapsed."
+    },
+    {
+      "cohort_id": "DUAL_LOGIC_V4_2_OCT01_15_OPEN",
+      "trigger_type": "DUAL_LOGIC_V4.2_BEAR_RESILIENCE",
+      "entry_date": "2026-10-01",
+      "tickers": ["GOLDBEES", "ITC", "HINDUNILVR", "SUNPHARMA", "ULTRACEMCO", "CPSEETF", "RELIANCE", "IOC", "HINDALCO"],
+      "target_horizon_days": 180,
+      "min_evaluation_days": 30,
+      "current_days_elapsed": 17,
+      "current_green_ratio": "4/9 (44.4%)",
+      "current_mean_return_pct": -0.57,
+      "policy": "HOLD_LOGIC_WAIT_FOR_DATA: Closed v4.2 trades achieved 50.0% WR and +1.71% mean return (+13.66% sum). Open positions are 8-17 sessions into a 180D horizon."
+    },
+    {
+      "cohort_id": "POST_V5_1_SWING_COHORT",
+      "trigger_type": "SCHEDULED_CRON_AUTO",
+      "entry_date": "2026-10-29",
+      "tickers": [],
+      "target_horizon_days": 7,
+      "min_evaluation_days": 10,
+      "min_closed_trades_for_reoptimization": 15,
+      "policy": "Accumulate at least 15 closed post-v5.1 swing trades before adjusting ATR multipliers or score thresholds to prevent parameter oscillation."
+    }
+  ],
+  "anti_oscillation_invariants": {
+    "min_swing_stop_loss_pct": 3.5,
+    "max_swing_stop_loss_pct": 6.0,
+    "atr_stop_multiplier": 2.2,
+    "atr_target_multiplier": 3.0,
+    "day1_close_only_stop_guard": true,
+    "contrarian_moat_catastrophe_stop_pct": -12.0,
+    "same_ticker_cooldown_days": 5,
+    "empirical_bayes_blacklist_min_trades": 3,
+    "empirical_bayes_blacklist_max_wr": 0.25,
+    "disallow_falling_knife_bullish_runup": true,
+    "require_pharma_sector_for_usfda": true
+  },
+  "gaps_and_changes": [
+    {
+      "gap_id": "GAP-01",
+      "discovered_date": "2026-10-28",
+      "title": "Inverted score_runup Formula Turning Falling Knives into BULLISH Buys",
+      "severity": "CRITICAL",
+      "empirical_impact_before": "29 closed BULLISH swing trades had 20.7% win rate (6W/23L) and -50.93% cumulative PnL (24/29 were Technical Baseline).",
+      "root_cause": "np.clip(100.0 - (runup_5d * 10.0), -50.0, 50.0) awarded maximum +50.0 (+17.5 weighted pts) whenever runup_5d <= +5%, including crashing stocks (runup_5d < 0%). Combined with +3.0 pts for dist_200 > 0, falling stocks with zero news catalyst crossed final_score >= 18.0.",
+      "change_applied": "Replaced linear runup clip with directional bimodal scoring: falling knives (runup_5d <= 0.3%) receive negative bullish runup score and -0.45 logit penalty; BULLISH swing entries require +0.3% <= runup_5d <= +5.5%, vol_surge >= 1.20x, close_pos >= 55%, RSI(14) in [50, 72], and verified catalyst or strong volume surge.",
+      "status": "APPLIED_V5_1"
+    },
+    {
+      "gap_id": "GAP-02",
+      "discovered_date": "2026-10-28",
+      "title": "Static 2.5%/3.5% Stop-Losses Causing Day 1-2 Intraday Wick Whipsaws",
+      "severity": "CRITICAL",
+      "empirical_impact_before": "50 of 99 losses (50.5%) stopped out within <=2 days (28 on Day 1). 15 of those 50 (30%) subsequently moved >=+2% in predicted direction and 10 (20%) hit full target (e.g. COLPAL +10.58%, TRENT +8.29%, INFY +8.19%, ICICIPRULI +7.52%). Also SIEMENS and ABB 180D moats stopped out at -8% on Day 12-14.",
+      "root_cause": "Hardcoded Stop_Loss_Pct (-2.5%/-3.5% and +2.5%) ignored stock-specific ATR(14), and evaluate_trade_lifecycle checked intraday High/Low on Day 1 opening wicks.",
+      "change_applied": "Scaled swing stops to clip(2.2 * ATR_14_Pct, 3.5%, 6.0%) and targets to clip(3.0 * ATR_14_Pct, 4.5%, 8.5%). Added Day-1 Close-basis wick protection in evaluate_trade_lifecycle (intraday High/Low checked from Day 2+). Widened 180D BULLISH_CONTRARIAN catastrophe stop floor to -12.0% on closing basis.",
+      "status": "APPLIED_V5_1"
+    },
+    {
+      "gap_id": "GAP-03",
+      "discovered_date": "2026-10-28",
+      "title": "Missing 5-Day Ticker Cooldown & Repeat-Shorting Secular Momentum Compounders",
+      "severity": "HIGH",
+      "empirical_impact_before": "68 of 192 trades (35.4%) were overlapping entries on the same ticker within <=5 days. 5 repeat-shorted momentum stocks (TRENT, HCLTECH, TORNTPOWER, ICICIGI, BHARTIARTL) went 2W/23L (8.0% WR, -76.06% PnL), whereas all other 109 BEARISH_FADE trades achieved 55.0% WR (60W/49L) and +88.27% PnL.",
+      "root_cause": "audit_daemon.py only checked if today_str_Ticker existed, allowing daily re-entry on active positions and ignoring Empirical Bayes repeat-failure memory.",
+      "change_applied": "Added is_ticker_in_cooldown_or_blacklisted() in ticker_utils.py enforcing: (a) no duplicate entry if ticker has an OPEN/PENDING trade or was traded within <=5 days, and (b) hard block if Empirical Bayes ledger history has >=3 closed trades with <=25% win rate.",
+      "status": "APPLIED_V5_1"
+    },
+    {
+      "gap_id": "GAP-04",
+      "discovered_date": "2026-10-28",
+      "title": "Unbounded 'eir'/'vai' USFDA Regex Matching 'their'/'available' on Non-Pharma Stocks",
+      "severity": "HIGH",
+      "empirical_impact_before": "All 6 closed 'USFDA Inspection / EIR Clearance' trades were on non-pharma tickers (TITAN, ITC, WIPRO, TCS, HDFCLIFE, TORNTPOWER) with 1/6 (16.7%) win rate.",
+      "root_cause": "Regex r'(?:usfda|...|eir|...|v-?a-?i)' lacked word boundaries (\\b), matching 'their' and 'available' in generic market roundup RSS items.",
+      "change_applied": "Added strict word boundaries r'\\b(?:usfda|establishment inspection report|eir|form 483|warning letter|zero observations|vai)\\b' and restricted USFDA catalyst assignment to PHARMA_HEALTHCARE_TICKERS.",
+      "status": "APPLIED_V5_1"
+    },
+    {
+      "gap_id": "GAP-05",
+      "discovered_date": "2026-10-28",
+      "title": "Uncalibrated 'High'/'75%' Confidence & Missing Schema Columns in Cron Daemon",
+      "severity": "MEDIUM",
+      "empirical_impact_before": "149 closed rows had '75%' confidence vs 42.3% actual WR (-32.7% calibration gap), and rows 174-191 from Oct 19-28 had 'High' and NaN Market_Regime/Catalyst_Score.",
+      "root_cause": "audit_daemon.py hardcoded Confidence='High' and omitted Market_Regime, Catalyst_Score, and Remarks; catalyst_app.py overwrote 'High' with '75%'.",
+      "change_applied": "Synced audit_daemon.py to compute live NIFTY 50 regime, log Platt-calibrated f'{prob_1w}%' confidence, and write full 20-column schema; removed static '75%' overwrite in catalyst_app.py and backfilled rows 174-191.",
+      "status": "APPLIED_V5_1"
+    },
+    {
+      "gap_id": "GAP-06",
+      "discovered_date": "2026-10-28",
+      "title": "GitHub Actions Workflow Omitted data/paper_trades.csv & Audit Logs from Git Commit",
+      "severity": "MEDIUM",
+      "empirical_impact_before": "data/paper_trades.csv and data/dual_logic_findings.json remained stuck on 2026-10-24 in git despite daily cron runs.",
+      "root_cause": ".github/workflows/daily_audit_daemon.yml line 43 only staged catalyst_prediction_ledger.csv.",
+      "change_applied": "Updated daily_audit_daemon.yml to stage and commit catalyst_prediction_ledger.csv, data/paper_trades.csv, data/dual_logic_findings.json, data/audit_evolution_ledger.csv, and data/audit_gap_and_change_log.json.",
+      "status": "APPLIED_V5_1"
+    }
+  ]
+}

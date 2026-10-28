@@ -370,6 +370,86 @@ def audit_dimension_6_path_dependent_auditing():
     score = max(0.0, round(score, 2))
     return score, deductions
 
+
+def audit_dimension_7_evolution_and_gap_stability():
+    """
+    Dimension 7: Audit Evolution Ledger, Root-Cause Gap Resolution & Anti-Oscillation Stability
+    - Validates append-only data/audit_evolution_ledger.csv & data/audit_gap_and_change_log.json
+    - Validates GAP-01 (Bimodal falling-knife guard in compute_bimodal_catalyst_score)
+    - Validates GAP-02 (Dynamic ATR brackets & Day-1 Close stop protection)
+    - Validates GAP-03 (5-day cooldown & empirical blacklist guard)
+    - Validates GAP-04 (USFDA word-boundary regex & Pharma/Healthcare sector gate)
+    - Validates GAP-05 (Zero uncalibrated 'High' or '75%' confidence strings in ledger)
+    - Validates GAP-06 (Workflow git add includes paper_trades.csv & evolution ledgers)
+    """
+    score = 10.0
+    deductions = []
+
+    evo_csv = os.path.join("data", "audit_evolution_ledger.csv")
+    gap_json = os.path.join("data", "audit_gap_and_change_log.json")
+
+    if not os.path.exists(evo_csv):
+        score -= 2.0
+        deductions.append("data/audit_evolution_ledger.csv missing.")
+    else:
+        try:
+            edf = pd.read_csv(evo_csv)
+            if len(edf) < 3 or "Audit_ID" not in edf.columns:
+                score -= 1.0
+                deductions.append("audit_evolution_ledger.csv missing baseline historical epochs.")
+        except Exception as e:
+            score -= 1.0
+            deductions.append(f"Error reading audit_evolution_ledger.csv: {e}")
+
+    if not os.path.exists(gap_json):
+        score -= 2.0
+        deductions.append("data/audit_gap_and_change_log.json missing.")
+
+    try:
+        import ticker_utils
+        # GAP-01: Falling knife without catalyst must NOT receive positive BULLISH score
+        fk_res = ticker_utils.compute_bimodal_catalyst_score(
+            runup_5d=-6.0, vol_surge_ratio=1.1, close_pos_pct=45.0,
+            dist_200=-5.0, rsi_14=42.0, impact_mult=1.0, has_confirmed_catalyst=False
+        )
+        if fk_res.get("final_score", 99.0) >= 10.0:
+            score -= 1.5
+            deductions.append(f"GAP-01 regression: falling knife without catalyst scored {fk_res.get('final_score')}")
+
+        # GAP-02: Dynamic ATR brackets
+        b_res = ticker_utils.compute_dynamic_atr_brackets(atr_pct=2.5, outlook="BULLISH", catalyst_name="Mega Order Win / Contract")
+        if abs(b_res.get("stop_ret", 0.0)) < 4.0:
+            score -= 1.0
+            deductions.append(f"GAP-02 regression: dynamic stop {b_res.get('stop_ret')} too tight for 2.5% ATR")
+
+        # GAP-04: Pharma sector gate
+        if ticker_utils.is_pharma_healthcare_ticker("NTPC") or ticker_utils.is_pharma_healthcare_ticker("ONGC"):
+            score -= 1.5
+            deductions.append("GAP-04 regression: NTPC/ONGC misclassified as Pharma/Healthcare ticker.")
+        if not ticker_utils.is_pharma_healthcare_ticker("SUNPHARMA"):
+            score -= 1.0
+            deductions.append("GAP-04 regression: SUNPHARMA not recognized as Pharma/Healthcare ticker.")
+
+        # GAP-05: Check catalyst_prediction_ledger.csv for uncalibrated 'High' or '75%'
+        if os.path.exists("catalyst_prediction_ledger.csv"):
+            ldf = pd.read_csv("catalyst_prediction_ledger.csv")
+            bad_conf = ldf["Confidence"].astype(str).str.strip().str.lower().isin(["high", "medium", "low", "75%", "75.0%", "nan", ""])
+            if bad_conf.sum() > 0:
+                score -= 1.5
+                deductions.append(f"GAP-05 regression: {int(bad_conf.sum())} rows in catalyst_prediction_ledger.csv still have uncalibrated Confidence.")
+
+            evo_eval = ticker_utils.evaluate_audit_evolution_and_stability(ldf, append_snapshot=False)
+            if "stability_verdict" not in evo_eval:
+                score -= 1.0
+                deductions.append("evaluate_audit_evolution_and_stability missing stability_verdict output.")
+    except Exception as e:
+        score -= 2.5
+        deductions.append(f"Error validating Dimension 7 gap guards: {e}")
+
+    score = max(0.0, round(score, 2))
+    return score, deductions
+
+
 def run_full_institutional_critic_audit():
     print("=" * 80)
     print("⚡ AUTONOMOUS CRITIC AI INSTITUTIONAL QUANTITATIVE AUDIT")
@@ -384,9 +464,10 @@ def run_full_institutional_critic_audit():
     s4, d4 = audit_dimension_4_empirical_calibration()
     s5, d5 = audit_dimension_5_regulatory_microstructure_and_friction()
     s6, d6 = audit_dimension_6_path_dependent_auditing()
+    s7, d7 = audit_dimension_7_evolution_and_gap_stability()
 
-    weights = [0.15, 0.15, 0.20, 0.20, 0.15, 0.15]
-    scores = [s1, s2, s3, s4, s5, s6]
+    weights = [0.14, 0.14, 0.16, 0.16, 0.13, 0.13, 0.14]
+    scores = [s1, s2, s3, s4, s5, s6, s7]
     composite = sum(w * s for w, s in zip(weights, scores))
 
     dimensions = [
@@ -396,6 +477,7 @@ def run_full_institutional_critic_audit():
         ("D4: Empirical Probability Calibration", s4, d4),
         ("D5: Regulatory Microstructure & Net Alpha Friction", s5, d5),
         ("D6: Path-Dependent Auditing & Execution Robustness", s6, d6),
+        ("D7: Audit Evolution Ledger & Gap Stability Guard", s7, d7),
     ]
 
     all_passed = True
