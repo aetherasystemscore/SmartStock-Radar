@@ -569,33 +569,40 @@ try:
             except Exception as e_pt:
                 print(f"Paper trades MTM update notice: {e_pt}")
 
-        # Evaluate Audit Evolution & Anti-Oscillation Stability Registry
-        try:
-            if evaluate_audit_evolution_and_stability is not None:
-                evo_status = evaluate_audit_evolution_and_stability(ledger_df=ledger, append_snapshot=False)
-                print(f"[AUDIT EVOLUTION REGISTRY] {evo_status.get('stability_recommendation')}")
-        except Exception as e_evo:
-            print(f"Audit evolution registry notice: {e_evo}")
-
-        # Stage data files for git commit
-        try:
-            files_to_add = [
-                f for f in [
-                    "catalyst_prediction_ledger.csv",
-                    "data/paper_trades.csv",
-                    "data/auto_3pm_trade_log.json",
-                    "data/dual_logic_findings.json",
-                    "data/dual_logic_state.json",
-                    "data/audit_evolution_ledger.csv",
-                    "data/audit_gap_and_change_log.json"
-                ] if os.path.exists(f)
-            ]
-            if files_to_add:
-                subprocess.run(["git", "add"] + files_to_add, check=False)
-        except Exception:
-            pass
 except Exception as ex_dl:
     print(f"Dual-Logic daily evaluation notice: {ex_dl}")
+
+# Evaluate Audit Evolution & Anti-Oscillation Stability Registry (Appends Daily Review Row)
+try:
+    if evaluate_audit_evolution_and_stability is not None:
+        evo_status = evaluate_audit_evolution_and_stability(
+            ledger_df=ledger,
+            append_snapshot=True,
+            audit_id=f"AUDIT_{today_str.replace('-', '_')}_DAEMON"
+        )
+        print(f"[AUDIT EVOLUTION REGISTRY] {evo_status.get('maturity_advisory')}")
+except Exception as e_evo:
+    print(f"Audit evolution registry notice: {e_evo}")
+
+# Stage all updated ledger & audit files for git commit
+try:
+    files_to_add = [
+        f for f in [
+            "catalyst_prediction_ledger.csv",
+            "data/market_cache.parquet",
+            "data/paper_trades.csv",
+            "data/auto_3pm_trade_log.json",
+            "data/dual_logic_findings.json",
+            "data/dual_logic_state.json",
+            "data/dual_logic_agent.log",
+            "data/audit_evolution_ledger.csv",
+            "data/audit_gap_and_change_log.json"
+        ] if os.path.exists(f)
+    ]
+    if files_to_add:
+        subprocess.run(["git", "add"] + files_to_add, check=False)
+except Exception:
+    pass
 
 # =====================================================================
 # 5. Refresh Dividend Screener Cache (Autonomous Fleet Sync)

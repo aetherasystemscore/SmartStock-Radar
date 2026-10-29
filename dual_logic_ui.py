@@ -367,7 +367,7 @@ def render_dl_table_freshness_banner(table_name: str, data_ts_str: str = None, k
     used_fallback = st.session_state.get("used_market_cache_fallback", False)
 
     age_mins = max(0.0, (now_ist - last_dt).total_seconds() / 60.0) if last_dt is not None else 999.0
-    is_stale = (manual_count == 0) or (age_mins > 15.0) or used_fallback
+    is_stale = (manual_count == 0) or (age_mins >= 15.0) or (used_fallback and manual_count == 0)
 
     c_ban, c_btn = st.columns([4.3, 0.7])
     with c_ban:
