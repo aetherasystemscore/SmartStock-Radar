@@ -169,7 +169,7 @@
     },
     "timestamp": "2026-10-24 13:42:40 IST"
   },
-  "last_updated_ist": "2026-11-09 15:50:10 IST",
+  "last_updated_ist": "2026-11-10 15:47:40 IST",
   "cadence": "Daily 3:00 PM Scheduled (Runs Mon-Fri via GitHub Actions even when app is closed)",
   "top_candidates_count": 36,
   "high_conviction_count": 13,
@@ -253,8 +253,8 @@
       "Status_Desc": "Deep-Value Moat Accumulate (20Y WR: 76.2%, Med 3Y CAGR: 15.9%)",
       "Badge_Bg": "#dcfce7",
       "Badge_Col": "#166534",
-      "Portfolio_Status": "\u2728 New Candidate",
-      "Is_Active_Portfolio": false,
+      "Portfolio_Status": "\ud83d\udd12 Active in Portfolio",
+      "Is_Active_Portfolio": true,
       "Debt_Equity": 0.38,
       "DE_Pass": true,
       "Interest_Coverage": 9.2,
@@ -767,22 +767,13 @@
   ],
   "auto_3pm_last_run": {
     "status": "SUCCESS",
-    "message": "3:00 PM Auto-Trade executed 1 new stocks (\u20b950K each), ignored 21 duplicates.",
-    "executed_count": 1,
-    "skipped_duplicate_count": 21,
-    "executed_trades": [
-      {
-        "ticker": "ULTRACEMCO",
-        "name": "UltraTech Cement",
-        "cmp": 12275.0,
-        "qty": 3,
-        "tranche_val": 36825.0,
-        "score": 0.731,
-        "message": "\ud83c\udf38 \u0950 \u0936\u0941\u092d \u0932\u093e\u092d\u093e\u092f \u0928\u092e\u0903 (Om Shubha Labh\u0101ya Namah) \u2014 Invested \u20b950,000 in new long-term pick: ULTRACEMCO (3 units @ \u20b912275.00 = \u20b936,825.00)! May your trades be profitable."
-      }
-    ],
+    "message": "3:00 PM Auto-Trade executed 0 new stocks (\u20b950K each), ignored 22 duplicates.",
+    "executed_count": 0,
+    "skipped_duplicate_count": 22,
+    "executed_trades": [],
     "skipped_duplicates": [
       "GOLDBEES",
+      "ULTRACEMCO",
       "ITC",
       "SIEMENS",
       "ABB",
@@ -804,18 +795,17 @@
       "JSWSTEEL",
       "TATASTEEL"
     ],
-    "timestamp": "2026-11-09 15:50:08 IST",
+    "timestamp": "2026-11-10 15:47:40 IST",
     "log": {
-      "last_run_date": "2026-11-09",
-      "last_run_timestamp": "2026-11-09 15:50:08 IST",
+      "last_run_date": "2026-11-10",
+      "last_run_timestamp": "2026-11-10 15:47:40 IST",
       "trigger": "Manual_Force_Run",
-      "executed_count": 1,
-      "skipped_duplicate_count": 21,
-      "executed_tickers": [
-        "ULTRACEMCO"
-      ],
+      "executed_count": 0,
+      "skipped_duplicate_count": 22,
+      "executed_tickers": [],
       "skipped_tickers": [
         "GOLDBEES",
+        "ULTRACEMCO",
         "ITC",
         "SIEMENS",
         "ABB",
