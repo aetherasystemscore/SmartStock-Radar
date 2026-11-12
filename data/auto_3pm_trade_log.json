@@ -1,11 +1,11 @@
 {
-  "last_run_date": "2026-11-11",
-  "last_run_timestamp": "2026-11-11 15:52:36 IST",
+  "last_run_date": "2026-11-12",
+  "last_run_timestamp": "2026-11-12 15:56:05 IST",
   "trigger": "Manual_Force_Run",
   "executed_count": 1,
   "skipped_duplicate_count": 21,
   "executed_tickers": [
-    "TCS"
+    "IOC"
   ],
   "skipped_tickers": [
     "GOLDBEES",
@@ -19,7 +19,6 @@
     "HINDALCO",
     "BPCL",
     "GRASIM",
-    "IOC",
     "POWERGRID",
     "CONCOR",
     "CPSEETF",
@@ -27,7 +26,8 @@
     "ONGC",
     "RELIANCE",
     "HCLTECH",
-    "HDFCBANK",
-    "JSWSTEEL"
+    "JSWSTEEL",
+    "TCS",
+    "HDFCBANK"
   ]
 }
