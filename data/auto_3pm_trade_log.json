@@ -1,19 +1,19 @@
 {
-  "last_run_date": "2026-11-18",
-  "last_run_timestamp": "2026-11-18 15:56:49 IST",
+  "last_run_date": "2026-11-19",
+  "last_run_timestamp": "2026-11-19 15:58:28 IST",
   "trigger": "Manual_Force_Run",
   "executed_count": 0,
-  "skipped_duplicate_count": 23,
+  "skipped_duplicate_count": 22,
   "executed_tickers": [],
   "skipped_tickers": [
     "GOLDBEES",
-    "SIEMENS",
     "ULTRACEMCO",
+    "SIEMENS",
     "ABB",
     "ITC",
     "HINDALCO",
-    "HINDUNILVR",
     "ADANIPORTS",
+    "HINDUNILVR",
     "SUNPHARMA",
     "BPCL",
     "GRASIM",
@@ -23,11 +23,10 @@
     "CPSEETF",
     "COALINDIA",
     "ONGC",
-    "RELIANCE",
     "HCLTECH",
-    "JSWSTEEL",
-    "TATASTEEL",
+    "RELIANCE",
     "TCS",
-    "HDFCBANK"
+    "TATASTEEL",
+    "JSWSTEEL"
   ]
 }
