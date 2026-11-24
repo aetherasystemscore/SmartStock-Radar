@@ -169,7 +169,7 @@
     },
     "timestamp": "2026-10-24 13:42:40 IST"
   },
-  "last_updated_ist": "2026-11-23 16:04:35 IST",
+  "last_updated_ist": "2026-11-25 01:46:30 IST",
   "cadence": "Daily 3:00 PM Scheduled (Runs Mon-Fri via GitHub Actions even when app is closed)",
   "top_candidates_count": 36,
   "high_conviction_count": 13,
@@ -194,8 +194,8 @@
       "Status_Desc": "Deep-Value Moat Accumulate (20Y WR: 64.7%, Med 3Y CAGR: 14.6%)",
       "Badge_Bg": "#dcfce7",
       "Badge_Col": "#166534",
-      "Portfolio_Status": "\u2728 New Candidate",
-      "Is_Active_Portfolio": false,
+      "Portfolio_Status": "\ud83d\udd12 Active in Portfolio",
+      "Is_Active_Portfolio": true,
       "Debt_Equity": 0.0,
       "DE_Pass": true,
       "Interest_Coverage": 99.0,
@@ -767,30 +767,22 @@
   ],
   "auto_3pm_last_run": {
     "status": "SUCCESS",
-    "message": "3:00 PM Auto-Trade executed 2 new stocks (\u20b950K each), ignored 22 duplicates.",
-    "executed_count": 2,
-    "skipped_duplicate_count": 22,
+    "message": "3:00 PM Auto-Trade executed 1 new stocks (\u20b950K each), ignored 23 duplicates.",
+    "executed_count": 1,
+    "skipped_duplicate_count": 23,
     "executed_trades": [
       {
-        "ticker": "GOLDBEES",
-        "name": "Nippon Gold ETF",
-        "cmp": 103.05,
-        "qty": 418,
-        "tranche_val": 43074.9,
-        "score": 0.841,
-        "message": "\ud83c\udf38 \u0950 \u0936\u0941\u092d \u0932\u093e\u092d\u093e\u092f \u0928\u092e\u0903 (Om Shubha Labh\u0101ya Namah) \u2014 Invested \u20b950,000 in new long-term pick: GOLDBEES (418 units @ \u20b9103.05 = \u20b943,074.90)! May your trades be profitable."
-      },
-      {
-        "ticker": "HDFCBANK",
-        "name": "HDFC Bank",
-        "cmp": 817.8,
-        "qty": 45,
-        "tranche_val": 36801.0,
-        "score": 0.61,
-        "message": "\ud83c\udf38 \u0950 \u0936\u0941\u092d \u0932\u093e\u092d\u093e\u092f \u0928\u092e\u0903 (Om Shubha Labh\u0101ya Namah) \u2014 Invested \u20b950,000 in new long-term pick: HDFCBANK (45 units @ \u20b9817.80 = \u20b936,801.00)! May your trades be profitable."
+        "ticker": "TATASTEEL",
+        "name": "Tata Steel",
+        "cmp": 163.0,
+        "qty": 167,
+        "tranche_val": 27221.0,
+        "score": 0.645,
+        "message": "\ud83c\udf38 \u0950 \u0936\u0941\u092d \u0932\u093e\u092d\u093e\u092f \u0928\u092e\u0903 (Om Shubha Labh\u0101ya Namah) \u2014 Invested \u20b950,000 in new long-term pick: TATASTEEL (167 units @ \u20b9163.00 = \u20b927,221.00)! May your trades be profitable."
       }
     ],
     "skipped_duplicates": [
+      "GOLDBEES",
       "ULTRACEMCO",
       "SIEMENS",
       "ABB",
@@ -807,25 +799,25 @@
       "CPSEETF",
       "COALINDIA",
       "ONGC",
-      "TATASTEEL",
       "RELIANCE",
       "HCLTECH",
       "JSWSTEEL",
       "LT",
-      "TCS"
+      "TCS",
+      "HDFCBANK"
     ],
-    "timestamp": "2026-11-23 16:04:31 IST",
+    "timestamp": "2026-11-25 01:46:26 IST",
     "log": {
-      "last_run_date": "2026-11-23",
-      "last_run_timestamp": "2026-11-23 16:04:31 IST",
+      "last_run_date": "2026-11-25",
+      "last_run_timestamp": "2026-11-25 01:46:26 IST",
       "trigger": "Manual_Force_Run",
-      "executed_count": 2,
-      "skipped_duplicate_count": 22,
+      "executed_count": 1,
+      "skipped_duplicate_count": 23,
       "executed_tickers": [
-        "GOLDBEES",
-        "HDFCBANK"
+        "TATASTEEL"
       ],
       "skipped_tickers": [
+        "GOLDBEES",
         "ULTRACEMCO",
         "SIEMENS",
         "ABB",
@@ -842,12 +834,12 @@
         "CPSEETF",
         "COALINDIA",
         "ONGC",
-        "TATASTEEL",
         "RELIANCE",
         "HCLTECH",
         "JSWSTEEL",
         "LT",
-        "TCS"
+        "TCS",
+        "HDFCBANK"
       ]
     }
   },
