@@ -1,12 +1,10 @@
 {
-  "last_run_date": "2026-11-25",
-  "last_run_timestamp": "2026-11-25 01:46:26 IST",
+  "last_run_date": "2026-11-26",
+  "last_run_timestamp": "2026-11-26 00:58:54 IST",
   "trigger": "Manual_Force_Run",
-  "executed_count": 1,
-  "skipped_duplicate_count": 23,
-  "executed_tickers": [
-    "TATASTEEL"
-  ],
+  "executed_count": 0,
+  "skipped_duplicate_count": 24,
+  "executed_tickers": [],
   "skipped_tickers": [
     "GOLDBEES",
     "ULTRACEMCO",
@@ -25,6 +23,7 @@
     "CPSEETF",
     "COALINDIA",
     "ONGC",
+    "TATASTEEL",
     "RELIANCE",
     "HCLTECH",
     "JSWSTEEL",

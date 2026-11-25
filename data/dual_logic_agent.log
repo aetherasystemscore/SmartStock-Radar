@@ -81,3 +81,5 @@
 2026-11-23 10:34:31,190 [INFO] DualLogicEngine_v5.0: Loaded locked production engine state from dual_logic_findings.json.
 2026-11-24 20:16:25,181 [INFO] DataPipeline20Y: Loaded existing v5.0 20Y dataset from /home/runner/work/SmartStock-Radar/SmartStock-Radar/data/dual_logic_20y_dataset.csv (810 records).
 2026-11-24 20:16:25,533 [INFO] DualLogicEngine_v5.0: Loaded locked production engine state from dual_logic_findings.json.
+2026-11-25 19:28:52,896 [INFO] DataPipeline20Y: Loaded existing v5.0 20Y dataset from /home/runner/work/SmartStock-Radar/SmartStock-Radar/data/dual_logic_20y_dataset.csv (810 records).
+2026-11-25 19:28:53,249 [INFO] DualLogicEngine_v5.0: Loaded locked production engine state from dual_logic_findings.json.
